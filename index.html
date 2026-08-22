@@ -19,6 +19,96 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-check-compat.js"></script>
 <script>
+/* ==========================================================
+   CAPTURADOR DE ERROS (carrega antes de tudo)
+   Guarda toda falha em window.__ERROR_LOG__ para a aba Erros.
+   ========================================================== */
+(function(){
+  var MAX = 120;
+  var log = [];
+  window.__ERROR_LOG__ = log;
+  window.__ERROR_LISTENERS__ = [];
+
+  function notify(){
+    try{ (window.__ERROR_LISTENERS__||[]).forEach(function(f){ f(); }); }catch(e){}
+  }
+
+  function push(type, msg, detail){
+    try{
+      var entry = {
+        t: new Date().toISOString(),
+        type: type,
+        msg: String(msg == null ? '' : msg).slice(0, 1200),
+        detail: detail ? String(detail).slice(0, 2500) : ''
+      };
+      // evita spam do mesmo erro repetido em sequência
+      var last = log[log.length-1];
+      if(last && last.type===entry.type && last.msg===entry.msg){
+        last.count = (last.count||1)+1;
+        last.t = entry.t;
+      } else {
+        log.push(entry);
+        if(log.length > MAX) log.shift();
+      }
+      notify();
+    }catch(e){}
+  }
+  window.__LOG_ERROR__ = push;
+
+  // 1. Erros de JavaScript não capturados
+  window.addEventListener('error', function(ev){
+    if(ev && ev.target && ev.target !== window && (ev.target.src || ev.target.href)){
+      push('recurso', 'Falha ao carregar: ' + (ev.target.src || ev.target.href), ev.target.tagName);
+      return;
+    }
+    var st = ev && ev.error && ev.error.stack ? ev.error.stack : '';
+    var where = (ev && ev.filename ? ev.filename.split('/').pop() : '') + (ev && ev.lineno ? ':' + ev.lineno + ':' + ev.colno : '');
+    push('js', (ev && ev.message) || 'Erro desconhecido', (where ? where + '\n' : '') + st);
+  }, true);
+
+  // 2. Promises rejeitadas (Firebase, fetch, etc)
+  window.addEventListener('unhandledrejection', function(ev){
+    var r = ev && ev.reason;
+    var msg = r && r.message ? r.message : String(r);
+    var extra = '';
+    if(r && r.code) extra += 'code: ' + r.code + '\n';
+    if(r && r.stack) extra += r.stack;
+    push('promise', msg, extra);
+  });
+
+  // 3. console.error e console.warn
+  ['error','warn'].forEach(function(lvl){
+    var orig = console[lvl];
+    console[lvl] = function(){
+      try{
+        var parts = Array.prototype.slice.call(arguments).map(function(a){
+          if(a instanceof Error) return a.message + (a.stack ? '\n' + a.stack : '');
+          if(typeof a === 'object'){ try{ return JSON.stringify(a); }catch(e){ return String(a); } }
+          return String(a);
+        });
+        push('console.' + lvl, parts.join(' '), '');
+      }catch(e){}
+      return orig.apply(console, arguments);
+    };
+  });
+
+  // 4. Informações do ambiente (primeira linha do relatório)
+  window.__ENV_INFO__ = function(){
+    var n = navigator;
+    return [
+      'App: Ciclo Consciente',
+      'URL: ' + location.href,
+      'Data: ' + new Date().toString(),
+      'Navegador: ' + n.userAgent,
+      'Idioma: ' + n.language,
+      'Tela: ' + screen.width + 'x' + screen.height + ' (janela ' + innerWidth + 'x' + innerHeight + ')',
+      'Online: ' + (n.onLine ? 'sim' : 'não'),
+      'Service Worker: ' + ('serviceWorker' in n ? 'suportado' : 'não suportado')
+    ].join('\n');
+  };
+})();
+</script>
+<script>
   /* ==========================================================
      CONFIGURAÇÃO DO FIREBASE
      Substitua pelos valores do seu projeto (Firebase Console >
@@ -40,6 +130,14 @@
   // Firebase Console > App Check > Registrar app Web > provedor reCAPTCHA v3 > Site Key.
   // Protege a Cloud Function pública getSharedChart contra bots/abuso.
   window.__APPCHECK_SITE_KEY__ = "SUA_CHAVE_RECAPTCHA_V3_AQUI";
+
+  /* ==========================================================
+     MODO BETA GRATUITO
+     true  = TODAS as funcionalidades liberadas para todas as usuárias
+             (sem paywall, sem Stripe). Use nesta fase de testes.
+     false = volta o modelo Grátis/Premium com pagamento via Stripe.
+     ========================================================== */
+  window.__FREE_MODE__ = true;
 </script>
 <script>
   tailwind.config = {
@@ -165,6 +263,8 @@
       lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7.6a4 4 0 0 1 8 0V11"/>',
       check: '<path d="M4 12.5 9.5 18 20 6"/>',
       x: '<path d="M6 6l12 12M18 6 6 18"/>',
+      bug: '<path d="M8 6a4 4 0 0 1 8 0"/><rect x="7" y="8" width="10" height="11" rx="5"/><path d="M7 12H3M21 12h-4M7.5 16.5 4 18.5M16.5 16.5 20 18.5M7.5 9.5 4 7.5M16.5 9.5 20 7.5"/>',
+      copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/>',
       chevron: '<path d="M9 6l6 6-6 6"/>',
       drop: '<path d="M12 3.5c3.6 4.4 6.5 8.1 6.5 11.4A6.5 6.5 0 1 1 5.5 14.9C5.5 11.6 8.4 7.9 12 3.5Z"/>',
       download: '<path d="M12 4v11"/><path d="M7 11l5 5 5-5"/><path d="M5 20h14"/>',
@@ -462,6 +562,13 @@
     muted: { dot:'bg-muted', text:'text-muted', bg:'bg-primary-soft', ring:'ring-muted' },
   };
 
+  /* Modo beta gratuito: libera todas as funcionalidades para todas as usuárias. */
+  const FREE_MODE = window.__FREE_MODE__ === true;
+  function hasPremium(user){
+    if(FREE_MODE) return true;
+    return !!(user && user.plan === 'premium');
+  }
+
   /* ---------------------------------------------------------------------
      ESTADO DA APLICAÇÃO
   --------------------------------------------------------------------- */
@@ -498,6 +605,8 @@
     graficoView: 'lista',      // lista | calendario
     showOnboarding: null,      // null = ainda não decidido nesta sessão
     onboardingStep: 0,
+    errorTick: 0,          // incrementa a cada novo erro capturado
+    errorCopied: false,
   };
 
   function freshDraft(dateStr){
@@ -666,7 +775,7 @@
     /* ---------- NAVEGAÇÃO ---------- */
     setTab(tab){
       state.tab = tab;
-      if(tab==='grafico' && state.currentUser.plan!=='premium'){
+      if(tab==='grafico' && !hasPremium(state.currentUser)){
         this.openPaywall('grafico');
       }
       if(tab==='perfil' && state.shares===null && !state.currentUser.isGuest){
@@ -720,8 +829,87 @@
       if(main) main.scrollTop = 0;
     },
 
+    /* ---------- REGISTRO DE ERROS (beta) ---------- */
+    buildErrorReport(){
+      const log = window.__ERROR_LOG__ || [];
+      const env = typeof window.__ENV_INFO__ === 'function' ? window.__ENV_INFO__() : '';
+      const lines = [];
+      lines.push('===== RELATÓRIO DE ERROS — CICLO CONSCIENTE =====');
+      lines.push('');
+      lines.push(env);
+      lines.push('Aba aberta: ' + state.tab);
+      lines.push('Registros carregados: ' + ((state.records||[]).length));
+      lines.push('Conta: ' + (state.currentUser ? (state.currentUser.isGuest ? 'demonstração' : 'e-mail/senha') : 'não logada'));
+      lines.push('');
+      lines.push('----- OCORRÊNCIAS (' + log.length + ') -----');
+      if(log.length === 0){
+        lines.push('(nenhum erro registrado nesta sessão)');
+      } else {
+        log.forEach(function(e, i){
+          lines.push('');
+          lines.push('[' + (i+1) + '] ' + e.type + (e.count>1 ? ' (repetiu ' + e.count + 'x)' : ''));
+          lines.push('Quando: ' + e.t);
+          lines.push('Mensagem: ' + e.msg);
+          if(e.detail){
+            lines.push('Detalhes:');
+            lines.push(e.detail);
+          }
+        });
+      }
+      lines.push('');
+      lines.push('===== FIM DO RELATÓRIO =====');
+      return lines.join('\n');
+    },
+    async copyErrorLog(){
+      const text = this.buildErrorReport();
+      let ok = false;
+      try{
+        if(navigator.clipboard && window.isSecureContext){
+          await navigator.clipboard.writeText(text);
+          ok = true;
+        }
+      }catch(e){ ok = false; }
+      if(!ok){
+        // fallback para navegadores sem Clipboard API (ou http)
+        try{
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          ta.setAttribute('readonly','');
+          ta.style.position = 'fixed';
+          ta.style.top = '-1000px';
+          document.body.appendChild(ta);
+          ta.select();
+          ta.setSelectionRange(0, text.length);
+          ok = document.execCommand('copy');
+          document.body.removeChild(ta);
+        }catch(e){ ok = false; }
+      }
+      if(ok){
+        state.errorCopied = true;
+        render();
+        setTimeout(function(){ state.errorCopied = false; render(); }, 2500);
+        this.toast('Relatório copiado. Agora é só colar.', 'success');
+      } else {
+        this.toast('Não consegui copiar. Selecione o texto dos cartões manualmente.', 'error');
+      }
+    },
+    clearErrorLog(){
+      const log = window.__ERROR_LOG__;
+      if(log) log.length = 0;
+      state.errorCopied = false;
+      render();
+      this.toast('Registro de erros limpo.', 'info');
+    },
+    testError(){
+      if(window.__LOG_ERROR__){
+        window.__LOG_ERROR__('app', 'Erro de teste gerado manualmente', 'Se esta linha apareceu na lista, a captura de erros está funcionando corretamente.');
+      }
+      render();
+      this.toast('Erro de teste registrado.', 'info');
+    },
+
     /* ---------- PLANO / PAYWALL ---------- */
-    openPaywall(feature){ state.paywall = feature || 'geral'; render(); },
+    openPaywall(feature){ if(FREE_MODE){ return; } state.paywall = feature || 'geral'; render(); },
     closePaywall(){ state.paywall = null; render(); },
     async subscribe(){
       if(state.fbUser && state.fbUser.isAnonymous){
@@ -760,6 +948,7 @@
       }
     },
     async togglePlanTest(){
+      if(FREE_MODE){ this.toast('Modo beta: todos os recursos já estão liberados.', 'info'); return; }
       const novo = state.currentUser.plan==='premium' ? 'free' : 'premium';
       try{
         await db.collection('users').doc(state.currentUser.id).update({ plan: novo });
@@ -1000,7 +1189,7 @@
 
     /* ---------- EXPORTAÇÃO PDF (premium) ---------- */
     exportReport(){
-      if(state.currentUser.plan!=='premium'){ this.openPaywall('pdf'); return; }
+      if(!hasPremium(state.currentUser)){ this.openPaywall('pdf'); return; }
       try{
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF();
@@ -1189,14 +1378,16 @@
   --------------------------------------------------------------------- */
   function renderShell(){
     const u = state.currentUser;
-    const isPremium = u.plan==='premium';
+    const isPremium = hasPremium(u);
     const tabs = [
       { id:'dashboard', label:'Painel', ic:'home' },
       { id:'registro',  label:'Registro', ic:'edit' },
       { id:'grafico',   label:'Gráfico', ic:'chart', locked: !isPremium },
       { id:'perfil',    label:'Perfil', ic:'user' },
     ];
-    const titles = { dashboard:'Painel do dia', registro:'Registro diário', grafico:'Gráfico Billings', perfil:'Perfil & Plano' };
+    if(FREE_MODE) tabs.push({ id:'erros', label:'Erros', ic:'bug' });
+    const errCount = (window.__ERROR_LOG__||[]).length;
+    const titles = { dashboard:'Painel do dia', registro:'Registro diário', grafico:'Gráfico Billings', perfil:'Perfil & Plano', erros:'Registro de erros' };
 
     const needsVerification = state.fbUser && !state.fbUser.isAnonymous && !state.fbUser.emailVerified && !state.emailBannerDismissed;
 
@@ -1210,7 +1401,7 @@
             <h1 class="font-display text-2xl mt-0.5">Olá, ${esc(u.name.split(' ')[0])}</h1>
           </div>
           <span class="text-[11px] font-semibold px-3 py-1.5 rounded-full ${isPremium ? 'bg-white text-primary' : 'bg-white/15 text-white'}">
-            ${isPremium ? '★ Premium' : 'Plano Grátis'}
+            ${FREE_MODE ? '✨ Beta — tudo liberado' : (isPremium ? '★ Premium' : 'Plano Grátis')}
           </span>
         </div>
       </header>
@@ -1234,15 +1425,17 @@
         ${state.tab==='registro' ? renderRegistro() : ''}
         ${state.tab==='grafico' ? renderGrafico() : ''}
         ${state.tab==='perfil' ? renderPerfil() : ''}
+        ${state.tab==='erros' ? renderErros() : ''}
       </main>
 
       <nav class="absolute bottom-0 left-0 right-0 bg-white shadow-nav safe-bottom border-t border-primary/5">
-        <div class="grid grid-cols-4">
+        <div class="grid" style="grid-template-columns: repeat(${tabs.length}, minmax(0, 1fr));">
           ${tabs.map(t=>`
             <button class="tap relative flex flex-col items-center gap-1 py-3" onclick="App.setTab('${t.id}')">
               <span class="relative ${state.tab===t.id ? 'text-primary' : 'text-muted'}">
                 ${icon(t.ic,'w-5 h-5')}
                 ${t.locked ? `<span class="absolute -right-2 -top-1.5 bg-transicao rounded-full w-3.5 h-3.5 flex items-center justify-center">${icon('lock','w-2 h-2 text-white')}</span>` : ''}
+                ${t.id==='erros' && errCount>0 ? `<span class="absolute -right-2.5 -top-1.5 bg-fertil text-white rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center text-[9px] font-bold">${errCount>99?'99+':errCount}</span>` : ''}
               </span>
               <span class="text-[10px] font-semibold ${state.tab===t.id ? 'text-primary' : 'text-muted'}">${t.label}</span>
             </button>
@@ -1327,13 +1520,25 @@
       </div>
 
       <!-- Teaser Premium -->
-      ${u.plan!=='premium' ? `
+      ${!hasPremium(u) ? `
       <button onclick="App.openPaywall('grafico')" class="tap w-full text-left bg-gradient-to-br from-primary to-primary-dark text-white rounded-2xl p-4 shadow-soft anim-fadeUp relative overflow-hidden">
         <svg class="absolute -right-6 -bottom-6 opacity-20" width="110" height="110" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1"><circle cx="12" cy="12" r="10"/></svg>
         <div class="flex items-center gap-2 mb-1">${icon('lock','w-4 h-4')}<span class="text-xs font-semibold uppercase tracking-wide text-white/80">Recurso Premium</span></div>
         <p class="font-display text-lg">Gráfico completo + Ápice automático</p>
         <p class="text-xs text-white/70 mt-1">Veja a Regra dos 3 dias, histórico ilimitado e exporte relatórios em PDF.</p>
       </button>` : ''}
+
+      <!-- Banner beta gratuito -->
+      ${FREE_MODE ? `
+      <div class="bg-transicao-bg text-transicao rounded-2xl p-4 anim-fadeUp">
+        <div class="flex items-start gap-2.5">
+          ${icon('sparkle','w-4 h-4 mt-0.5 shrink-0')}
+          <div>
+            <p class="text-sm font-semibold">Versão beta — tudo liberado</p>
+            <p class="text-[11px] leading-relaxed mt-1">Gráfico completo, calendário, ápice automático, PDF e compartilhamento estão gratuitos nesta fase. Se algo não funcionar como esperado, anote o que você fez antes do erro — isso ajuda muito a corrigir.</p>
+          </div>
+        </div>
+      </div>` : ''}
 
       <!-- Guia introdutório -->
       <div class="bg-white rounded-2xl shadow-soft overflow-hidden anim-fadeUp">
@@ -1441,7 +1646,7 @@
     const records = state.records || [];
     const analysis = computeAnalysis(records).slice().reverse(); // mais recente primeiro
 
-    if(u.plan!=='premium'){
+    if(!hasPremium(u)){
       const last7 = analysis.slice(0,7);
       return `
       <div class="space-y-5">
@@ -1600,10 +1805,89 @@
     }).join('');
   }
 
+  /* ---------- ABA DE ERROS (diagnóstico beta) ---------- */
+  function renderErros(){
+    const log = window.__ERROR_LOG__ || [];
+    const typeColor = {
+      'js':            'bg-fertil-bg text-fertil',
+      'promise':       'bg-fertil-bg text-fertil',
+      'recurso':       'bg-transicao-bg text-transicao',
+      'console.error': 'bg-fertil-bg text-fertil',
+      'console.warn':  'bg-transicao-bg text-transicao',
+      'app':           'bg-primary-soft text-primary',
+    };
+
+    return `
+    <div class="space-y-5">
+
+      <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp">
+        <div class="flex items-start gap-2.5">
+          ${icon('bug','w-4 h-4 mt-0.5 text-primary shrink-0')}
+          <div class="min-w-0">
+            <p class="text-sm font-semibold">Registro de erros</p>
+            <p class="text-[11px] text-muted mt-1 leading-relaxed">Tudo que der errado no app aparece aqui automaticamente. Quando encontrar um problema, toque em <strong>Copiar relatório</strong> e cole na conversa — o texto já vem com navegador, data e detalhes técnicos.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3 anim-fadeUp">
+        <button onclick="App.copyErrorLog()" class="tap bg-primary text-white font-semibold py-3.5 rounded-xl shadow-soft flex items-center justify-center gap-2 text-sm">
+          ${icon(state.errorCopied ? 'check' : 'copy','w-4 h-4')} ${state.errorCopied ? 'Copiado!' : 'Copiar relatório'}
+        </button>
+        <button onclick="App.clearErrorLog()" class="tap bg-white border border-primary/15 text-primary font-semibold py-3.5 rounded-xl shadow-soft flex items-center justify-center gap-2 text-sm">
+          ${icon('trash','w-4 h-4')} Limpar
+        </button>
+      </div>
+
+      <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp">
+        <div class="flex items-center justify-between mb-1">
+          <p class="text-xs font-semibold text-muted uppercase tracking-wide">Ocorrências</p>
+          <span class="text-xs font-semibold ${log.length ? 'text-fertil' : 'text-infertil'}">${log.length === 0 ? 'nenhuma' : log.length + (log.length===1?' erro':' erros')}</span>
+        </div>
+        <p class="text-[11px] text-muted leading-relaxed">Se a lista está vazia, nada quebrou até agora nesta sessão. O registro zera quando você recarrega a página.</p>
+      </div>
+
+      ${log.length === 0 ? `
+      <div class="bg-infertil-bg text-infertil rounded-2xl p-5 text-center anim-fadeUp">
+        ${icon('check','w-7 h-7 mx-auto mb-2')}
+        <p class="text-sm font-semibold">Nenhum erro registrado</p>
+        <p class="text-[11px] mt-1 leading-relaxed">Continue testando. Se algo travar ou não carregar, volte aqui.</p>
+      </div>` : `
+      <div class="space-y-3">
+        ${log.slice().reverse().map((e,i)=>`
+        <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp">
+          <div class="flex items-center justify-between gap-2 mb-2">
+            <span class="text-[10px] font-bold px-2 py-1 rounded-full ${typeColor[e.type] || 'bg-primary-soft text-primary'}">${esc(e.type)}</span>
+            <span class="text-[10px] text-muted font-mono">${esc(new Date(e.t).toLocaleTimeString('pt-BR'))}${e.count>1 ? ' ×'+e.count : ''}</span>
+          </div>
+          <p class="text-xs font-semibold leading-relaxed break-words">${esc(e.msg)}</p>
+          ${e.detail ? `
+          <pre class="mt-2 text-[10px] text-muted bg-canvas rounded-lg p-2.5 overflow-x-auto whitespace-pre-wrap break-words leading-relaxed max-h-40">${esc(e.detail)}</pre>` : ''}
+        </div>`).join('')}
+      </div>`}
+
+      <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp">
+        <p class="text-xs font-semibold text-muted uppercase tracking-wide mb-3">Ao relatar um problema</p>
+        <ol class="space-y-2 text-[11px] text-ink leading-relaxed list-decimal list-inside">
+          <li>O que você fez antes do erro (qual botão, qual tela)</li>
+          <li>O que esperava que acontecesse</li>
+          <li>O que aconteceu de verdade</li>
+          <li>Cole o relatório copiado aqui desta aba</li>
+        </ol>
+      </div>
+
+      <button onclick="App.testError()" class="tap w-full bg-white border border-primary/15 text-muted font-semibold py-3 rounded-xl text-xs anim-fadeUp">
+        Gerar erro de teste (confere se a captura funciona)
+      </button>
+
+      <p class="text-[10px] text-muted text-center pb-2">Esta aba só aparece na versão beta. Nada daqui é enviado automaticamente — você decide o que compartilhar.</p>
+    </div>`;
+  }
+
   /* ---------- PERFIL ---------- */
   function renderPerfil(){
     const u = state.currentUser;
-    const isPremium = u.plan==='premium';
+    const isPremium = hasPremium(u);
     const isGuest = !!u.isGuest;
     const notifOn = !!u.fcmToken;
     const initials = u.name.split(' ').map(p=>p[0]).slice(0,2).join('').toUpperCase();
@@ -1615,7 +1899,7 @@
         <div class="min-w-0">
           <p class="font-semibold truncate">${esc(u.name)}</p>
           <p class="text-xs text-muted truncate">${esc(u.email) || 'Conta demonstração'}</p>
-          <span class="inline-block mt-1.5 text-[10px] font-semibold px-2.5 py-1 rounded-full ${isPremium ? 'bg-primary text-white' : 'bg-primary-soft text-primary'}">${isPremium ? '★ Plano Premium' : 'Plano Gratuito'}</span>
+          <span class="inline-block mt-1.5 text-[10px] font-semibold px-2.5 py-1 rounded-full ${isPremium ? 'bg-primary text-white' : 'bg-primary-soft text-primary'}">${FREE_MODE ? '✨ Beta gratuito' : (isPremium ? '★ Plano Premium' : 'Plano Gratuito')}</span>
         </div>
       </div>
 
@@ -1625,7 +1909,12 @@
         <p class="text-[11px] leading-relaxed">Conta demonstração: assinatura real e notificações exigem uma conta com e-mail e senha.</p>
       </div>` : ''}
 
-      ${!isPremium ? `
+      ${FREE_MODE ? `
+      <div class="bg-gradient-to-br from-primary to-primary-dark text-white rounded-2xl p-4 shadow-soft anim-fadeUp">
+        <div class="flex items-center gap-2 mb-1">${icon('sparkle','w-4 h-4')}<span class="text-xs font-semibold uppercase tracking-wide text-white/80">Fase beta</span></div>
+        <p class="text-sm font-semibold">Todos os recursos liberados</p>
+        <p class="text-white/70 text-xs mt-1 leading-relaxed">Durante o período de testes, gráfico completo, calendário, PDF e compartilhamento estão disponíveis sem custo. Encontrou algo estranho? Nos avise!</p>
+      </div>` : (!isPremium ? `
       <button onclick="App.openPaywall('perfil')" class="tap w-full bg-gradient-to-br from-primary to-primary-dark text-white rounded-2xl p-4 shadow-soft flex items-center justify-between anim-fadeUp">
         <span class="text-left">
           <span class="block font-semibold text-sm">Assinar Plano Pro</span>
@@ -1640,8 +1929,9 @@
         <button onclick="App.manageBilling()" ${state.portalBusy?'disabled':''} class="tap w-full border border-primary/15 text-primary font-semibold py-2.5 rounded-xl flex items-center justify-center gap-2 text-sm disabled:opacity-60">
           ${icon('card','w-4 h-4')} ${state.portalBusy ? 'Abrindo…' : 'Gerenciar assinatura / cancelar'}
         </button>
-      </div>`}
+      </div>`)}
 
+      ${FREE_MODE ? '' : `
       <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp">
         <div class="flex items-center justify-between">
           <div>
@@ -1652,7 +1942,7 @@
             <span class="absolute top-1 ${isPremium ? 'right-1' : 'left-1'} w-6 h-6 rounded-full bg-white shadow transition-all"></span>
           </button>
         </div>
-      </div>
+      </div>`}
 
       <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp">
         <div class="flex items-center justify-between gap-3">
@@ -1983,6 +2273,23 @@
     else if(state.view==='auth') root.innerHTML = renderAuth();
     else if(state.currentUser && state.currentUser.role==='instrutora') root.innerHTML = renderInstructorShell();
     else root.innerHTML = renderShell();
+  }
+
+  /* Redesenha o badge da aba Erros quando um novo erro é capturado.
+     Não redesenha se a pessoa está digitando, para não perder o foco. */
+  if(window.__ERROR_LISTENERS__){
+    let pending = null;
+    window.__ERROR_LISTENERS__.push(function(){
+      if(pending) return;
+      pending = setTimeout(function(){
+        pending = null;
+        try{
+          const el = document.activeElement;
+          const typing = el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
+          if(!typing && state.view === 'app') render();
+        }catch(e){}
+      }, 400);
+    });
   }
 
   document.addEventListener('DOMContentLoaded', () => App.init());
