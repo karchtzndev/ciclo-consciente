@@ -1,0 +1,17 @@
+{
+  "name": "Ciclo Consciente · Método Billings",
+  "short_name": "Ciclo Consciente",
+  "description": "Acompanhamento do Método de Ovulação Billings para espaçamento gestacional.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#4A2545",
+  "theme_color": "#4A2545",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

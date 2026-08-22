@@ -1,0 +1,1992 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, viewport-fit=cover">
+<title>Ciclo Consciente · Método Billings</title>
+<meta name="theme-color" content="#4A2545">
+<meta name="description" content="Acompanhamento do Método de Ovulação Billings para espaçamento gestacional.">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/icons/favicon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-check-compat.js"></script>
+<script>
+  /* ==========================================================
+     CONFIGURAÇÃO DO FIREBASE
+     Substitua pelos valores do seu projeto (Firebase Console >
+     Configurações do projeto > Seus apps > Config do SDK).
+     Mantenha em sincronia com sw.js (mesmo service worker cuida do PWA e do FCM).
+     ========================================================== */
+  window.__FIREBASE_CONFIG__ = {
+    apiKey: "SUA_API_KEY_AQUI",
+    authDomain: "SEU_PROJETO.firebaseapp.com",
+    projectId: "SEU_PROJETO",
+    storageBucket: "SEU_PROJETO.appspot.com",
+    messagingSenderId: "000000000000",
+    appId: "1:000000000000:web:xxxxxxxxxxxxxxxxxxxxxx"
+  };
+  // Firebase Console > Project Settings > Cloud Messaging > Web Push certificates
+  window.__FCM_VAPID_KEY__ = "SUA_CHAVE_VAPID_AQUI";
+  // URL da Cloud Function getSharedChart (usada pelo painel da instrutora e por share.html)
+  window.__FUNCTIONS_BASE_URL__ = "SUA_FUNCTIONS_URL_AQUI";
+  // Firebase Console > App Check > Registrar app Web > provedor reCAPTCHA v3 > Site Key.
+  // Protege a Cloud Function pública getSharedChart contra bots/abuso.
+  window.__APPCHECK_SITE_KEY__ = "SUA_CHAVE_RECAPTCHA_V3_AQUI";
+</script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          canvas: '#F7F5EE',
+          ink: '#2B2230',
+          primary: { DEFAULT:'#4A2545', light:'#7A4F72', dark:'#301A2C', soft:'#EFE6ED' },
+          infertil: { DEFAULT:'#4C7A57', bg:'#E3EDE4' },
+          transicao: { DEFAULT:'#B8802A', bg:'#F7EBD3' },
+          fertil: { DEFAULT:'#B34632', bg:'#F5DFDA' },
+          surface: '#FFFFFF',
+          muted: '#8B8089'
+        },
+        fontFamily: {
+          display: ['"Fraunces"','serif'],
+          body: ['"Inter"','ui-sans-serif','sans-serif'],
+          mono: ['"IBM Plex Mono"','ui-monospace','monospace']
+        },
+        boxShadow: {
+          soft: '0 10px 30px -12px rgba(43,34,48,0.28)',
+          nav: '0 -6px 20px -8px rgba(43,34,48,0.18)'
+        }
+      }
+    }
+  }
+</script>
+<style>
+  html,body{ -webkit-tap-highlight-color: transparent; }
+  body{ font-family:'Inter',sans-serif; }
+  .font-display{ font-family:'Fraunces', serif; }
+  .font-mono{ font-family:'IBM Plex Mono', monospace; }
+  ::-webkit-scrollbar{ display:none; }
+  * { scrollbar-width: none; }
+  .scroll-x{ overflow-x:auto; -webkit-overflow-scrolling: touch; }
+  @keyframes fadeUp{ from{opacity:0; transform:translateY(10px);} to{opacity:1; transform:translateY(0);} }
+  @keyframes sheetUp{ from{transform:translateY(100%);} to{transform:translateY(0);} }
+  @keyframes fadeIn{ from{opacity:0;} to{opacity:1;} }
+  .anim-fadeUp{ animation: fadeUp .35s ease both; }
+  .anim-sheet{ animation: sheetUp .32s cubic-bezier(.22,.9,.34,1) both; }
+  .anim-fadeIn{ animation: fadeIn .2s ease both; }
+  .safe-bottom{ padding-bottom: env(safe-area-inset-bottom, 0px); }
+  .tap{ transition: transform .12s ease, opacity .12s ease; }
+  .tap:active{ transform: scale(.96); opacity:.85; }
+  input[type="date"]{ font-family:'IBM Plex Mono', monospace; }
+  .ring-track{ stroke:#EFE6ED; }
+</style>
+</head>
+<body class="bg-primary-dark md:bg-[#211320] min-h-screen">
+<div class="min-h-screen md:py-8 md:flex md:items-center md:justify-center">
+  <div id="app" class="w-full max-w-[460px] mx-auto min-h-screen md:min-h-[860px] bg-canvas relative md:rounded-[2.75rem] md:shadow-2xl md:ring-8 md:ring-black/10 overflow-hidden flex flex-col text-ink"></div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ---------------------------------------------------------------------
+     CONSTANTS / VOCABULÁRIO DO MÉTODO
+  --------------------------------------------------------------------- */
+  const MUCUS_OPTIONS = [
+    { id:'nenhum',   label:'Nenhum', hint:'Ausência de muco perceptível' },
+    { id:'pegajoso', label:'Pegajoso, opaco', hint:'Consistência grumosa, esbranquiçada' },
+    { id:'cremoso',  label:'Cremoso', hint:'Leitoso, mais fluido' },
+    { id:'elastico', label:'Elástico, transparente', hint:'Tipo "clara de ovo", filante' },
+  ];
+  const SENSACAO_OPTIONS = [
+    { id:'seca', label:'Seca' },
+    { id:'umida', label:'Úmida' },
+    { id:'molhada', label:'Molhada' },
+    { id:'lubrificativa', label:'Lubrificativa / Escorregadia' },
+  ];
+  const SANGRAMENTO_OPTIONS = [
+    { id:'nenhum', label:'Nenhum' },
+    { id:'leve', label:'Leve / Spotting' },
+    { id:'menstruacao', label:'Menstruação' },
+  ];
+  const FATORES_OPTIONS = [
+    { id:'relacao', label:'Relação sexual' },
+    { id:'estresse', label:'Estresse' },
+    { id:'amamentacao', label:'Amamentação' },
+    { id:'medicamento', label:'Medicamento / Hormônio' },
+    { id:'higiene', label:'Ducha / Produto íntimo' },
+    { id:'infeccao', label:'Possível infecção' },
+  ];
+
+  const PREMIUM_FEATURES = [
+    'Gráfico e calendário Billings completo, com simbologia clássica',
+    'Identificação automática do Ápice e da Regra dos 3 dias',
+    'Histórico ilimitado de ciclos',
+    'Algoritmo de probabilidade de fertilidade do dia',
+    'Exportação de relatório em PDF para sua instrutora ou médico(a)',
+    'Conteúdo aprofundado sobre regras de espaçamento gestacional',
+  ];
+  const REPRODUCTIVE_PHASES = [
+    { id:'normal', label:'Ciclos regulares', hint:'Regras padrão do método.' },
+    { id:'amamentacao', label:'Amamentação / Pós-parto', hint:'Permite marcar seu Padrão Básico Pessoal.' },
+    { id:'perimenopausa', label:'Perimenopausa', hint:'Permite marcar seu Padrão Básico Pessoal.' },
+    { id:'irregular', label:'Ciclos longos ou irregulares', hint:'Maior cautela nas classificações intermediárias.' },
+  ];
+
+  /* ---------------------------------------------------------------------
+     UTILITÁRIOS
+  --------------------------------------------------------------------- */
+  const pad = n => String(n).padStart(2,'0');
+  const uid = () => 'id_' + Math.random().toString(36).slice(2,10) + Date.now().toString(36).slice(-4);
+  const todayStr = () => { const d=new Date(); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; };
+  const addDays = (dateStr, n) => { const d=new Date(dateStr+'T00:00:00'); d.setDate(d.getDate()+n); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; };
+  const dayDiff = (a,b) => Math.round((new Date(b+'T00:00:00') - new Date(a+'T00:00:00')) / 86400000);
+  const fmtBR = (dateStr) => { const [y,m,d]=dateStr.split('-'); return `${d}/${m}`; };
+  const fmtBRFull = (dateStr) => { const [y,m,d]=dateStr.split('-'); return `${d}/${m}/${y}`; };
+  const label = (arr,id) => (arr.find(o=>o.id===id)||{}).label || '—';
+  const esc = s => (s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  function icon(name, cls){
+    cls = cls || 'w-5 h-5';
+    const paths = {
+      home: '<path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v9a1 1 0 0 0 1 1H10v-6h4v6h3.5a1 1 0 0 0 1-1v-9"/>',
+      edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4.2 1L4 15.8 16.5 3.5Z"/>',
+      chart: '<path d="M4 20V11"/><path d="M12 20V4"/><path d="M20 20v-7"/>',
+      user: '<circle cx="12" cy="8" r="3.6"/><path d="M4.5 20c0-4.1 3.4-6.4 7.5-6.4S19.5 15.9 19.5 20"/>',
+      lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7.6a4 4 0 0 1 8 0V11"/>',
+      check: '<path d="M4 12.5 9.5 18 20 6"/>',
+      x: '<path d="M6 6l12 12M18 6 6 18"/>',
+      chevron: '<path d="M9 6l6 6-6 6"/>',
+      drop: '<path d="M12 3.5c3.6 4.4 6.5 8.1 6.5 11.4A6.5 6.5 0 1 1 5.5 14.9C5.5 11.6 8.4 7.9 12 3.5Z"/>',
+      download: '<path d="M12 4v11"/><path d="M7 11l5 5 5-5"/><path d="M5 20h14"/>',
+      book: '<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5v-15Z"/><path d="M4 20.5A2.5 2.5 0 0 1 6.5 18H20"/>',
+      sparkle: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M18 6l-2.5 2.5M8.5 15.5 6 18"/>',
+      shield: '<path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3Z"/>',
+      logout: '<path d="M9 20H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h4"/><path d="M15 16l4-4-4-4"/><path d="M19 12H9"/>',
+      plus: '<path d="M12 5v14M5 12h14"/>',
+      mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/>',
+      bell: '<path d="M6 8a6 6 0 0 1 12 0c0 4 1.5 5.5 2 6.5H4c.5-1 2-2.5 2-6.5Z"/><path d="M10 19a2 2 0 0 0 4 0"/>',
+      trash: '<path d="M4 7h16"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/><path d="M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/>',
+      card: '<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18"/><path d="M7 15h4"/>',
+      alert: '<path d="M12 8v5"/><path d="M12 17h.01"/><circle cx="12" cy="12" r="9"/>',
+    };
+    return `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${paths[name]||''}</svg>`;
+  }
+
+  /* ---------------------------------------------------------------------
+     PERSISTÊNCIA (Firebase Auth + Firestore)
+     Cada usuária só enxerga seus próprios dados:
+       users/{uid}                  -> perfil (nome, e-mail, plano)
+       users/{uid}/records/{date}   -> um registro diário por data
+     O isolamento é garantido pelas Regras de Segurança do Firestore
+     (ver firestore.rules), não apenas pelo código do app.
+  --------------------------------------------------------------------- */
+  const isFirebaseConfigured = !!(window.__FIREBASE_CONFIG__ && window.__FIREBASE_CONFIG__.apiKey && window.__FIREBASE_CONFIG__.apiKey !== 'SUA_API_KEY_AQUI');
+
+  let fbApp = null, auth = null, db = null;
+  let userDocUnsub = null, recordsUnsub = null;
+  const isAppCheckConfigured = !!(window.__APPCHECK_SITE_KEY__ && window.__APPCHECK_SITE_KEY__ !== 'SUA_CHAVE_RECAPTCHA_V3_AQUI');
+
+  if(isFirebaseConfigured){
+    fbApp = firebase.initializeApp(window.__FIREBASE_CONFIG__);
+    auth = firebase.auth();
+    db = firebase.firestore();
+    // Cache local (IndexedDB): permite registrar offline — a escrita fica
+    // pendente no dispositivo e sincroniza sozinha quando a conexão volta.
+    db.enablePersistence({ synchronizeTabs: true }).catch((err) => {
+      // 'failed-precondition' = múltiplas abas sem synchronizeTabs (não é o caso aqui);
+      // 'unimplemented' = navegador sem suporte (ex.: modo privado de alguns navegadores).
+      console.warn('Persistência offline indisponível:', err.code);
+    });
+    // App Check: garante que só o app de verdade (não um script/bot externo)
+    // consegue chamar a Cloud Function pública getSharedChart.
+    if(isAppCheckConfigured){
+      try{
+        firebase.appCheck().activate(
+          new firebase.appCheck.ReCaptchaV3Provider(window.__APPCHECK_SITE_KEY__),
+          true // auto-renovação de token
+        );
+      }catch(e){ console.warn('App Check indisponível:', e); }
+    }
+  }
+
+  // Indicador de conectividade — usado para avisar quando o dispositivo está offline.
+  let isOnline = navigator.onLine;
+  window.addEventListener('online', () => { isOnline = true; render(); });
+  window.addEventListener('offline', () => { isOnline = false; render(); });
+
+  function detachListeners(){
+    if(userDocUnsub){ userDocUnsub(); userDocUnsub = null; }
+    if(recordsUnsub){ recordsUnsub(); recordsUnsub = null; }
+  }
+
+  function attachUserDocListener(fbUser){
+    userDocUnsub = db.collection('users').doc(fbUser.uid).onSnapshot(snap=>{
+      state.currentUser = snap.exists
+        ? { id: fbUser.uid, email: fbUser.email || '', ...snap.data() }
+        : { id: fbUser.uid, email: fbUser.email || '', name: (fbUser.email||'Usuária').split('@')[0], plan:'free' };
+      if(state.showOnboarding===null){
+        state.showOnboarding = !state.currentUser.onboardingSeen && state.currentUser.role!=='instrutora' && !state.currentUser.isGuest;
+      }
+      render();
+    }, err => console.error('users listener:', err));
+  }
+
+  function attachRecordsListener(uidVal){
+    recordsUnsub = db.collection('users').doc(uidVal).collection('records').orderBy('date','asc').onSnapshot(snap=>{
+      state.records = snap.docs.map(d=>d.data());
+      if(!state.draft) state.draft = freshDraft(todayStr());
+      state.recordsLoading = false;
+      render();
+    }, err => { console.error('records listener:', err); state.recordsLoading = false; render(); });
+  }
+
+  async function seedDemoRecordsIfEmpty(uidVal){
+    const existing = await db.collection('users').doc(uidVal).collection('records').limit(1).get();
+    if(!existing.empty) return;
+    const pattern = [
+      ...Array(5).fill(['menstruacao','molhada']),
+      ...Array(4).fill(['nenhum','seca']),
+      ...Array(2).fill(['pegajoso','umida']),
+      ...Array(3).fill(['elastico','lubrificativa']), // pico = último desses
+      ...Array(1).fill(['cremoso','molhada']),
+      ...Array(1).fill(['pegajoso','umida']),
+      ...Array(1).fill(['nenhum','seca']),
+      ...Array(9).fill(['nenhum','seca']),
+    ];
+    const total = 34; // termina ontem
+    const start = addDays(todayStr(), -total);
+    const batch = db.batch();
+    const col = db.collection('users').doc(uidVal).collection('records');
+    for(let i=0;i<total;i++){
+      const [muco, sensacao] = pattern[i % pattern.length];
+      const date = addDays(start, i);
+      const rec = {
+        date,
+        sensacao: muco==='menstruacao' ? 'molhada' : sensacao,
+        muco: muco==='menstruacao' ? 'nenhum' : muco,
+        sangramento: muco === 'menstruacao' ? 'menstruacao' : (Math.random()<0.03 ? 'leve':'nenhum'),
+        fatores: (i===12 ? ['relacao'] : (i===2 ? ['estresse'] : [])),
+        notas: (i===12 ? 'Sensação de lubrificação nítida ao longo do dia.' : ''),
+      };
+      batch.set(col.doc(date), rec);
+    }
+    await batch.commit();
+  }
+
+  // Token do App Check para anexar nas chamadas fetch() às Cloud Functions
+  // públicas. Se o App Check não estiver configurado, retorna vazio — a
+  // função no backend simplesmente não vai exigir o header nesse caso.
+  async function getAppCheckHeaders(){
+    if(!isAppCheckConfigured) return {};
+    try{
+      const { token } = await firebase.appCheck().getToken(false);
+      return { 'X-Firebase-AppCheck': token };
+    }catch(e){ return {}; }
+  }
+
+  function mapAuthError(code){
+    const dict = {
+      'auth/email-already-in-use': 'Já existe uma conta com este e-mail.',
+      'auth/invalid-email': 'E-mail inválido.',
+      'auth/weak-password': 'Senha muito fraca (mínimo 6 caracteres).',
+      'auth/user-not-found': 'E-mail ou senha inválidos.',
+      'auth/wrong-password': 'E-mail ou senha inválidos.',
+      'auth/invalid-credential': 'E-mail ou senha inválidos.',
+      'auth/too-many-requests': 'Muitas tentativas. Tente novamente em instantes.',
+      'auth/network-request-failed': 'Falha de conexão. Verifique sua internet.',
+      'auth/admin-restricted-operation': 'Login anônimo desabilitado. Ative "Anônimo" em Authentication > Sign-in method no console do Firebase.',
+    };
+    return dict[code] || 'Ocorreu um erro. Tente novamente.';
+  }
+
+  /* ---------------------------------------------------------------------
+     REGRAS DE NEGÓCIO — MÉTODO BILLINGS
+  --------------------------------------------------------------------- */
+  function isFertileMucus(r){ return r.muco==='elastico' || r.sensacao==='lubrificativa'; }
+
+  function baseClassify(r){
+    if(r.personalBIP) return { color:'green', label:'Padrão Básico Pessoal', code:'B', desc:'Marcado manualmente como seu padrão básico infértil pessoal (fases especiais como amamentação/perimenopausa).' };
+    if(r.sangramento === 'menstruacao') return { color:'red', label:'Menstruação', code:'M', desc:'Sangramento menstrual — dia de alto risco por convenção do método.' };
+    if(r.sangramento === 'leve')        return { color:'amber', label:'Spotting', code:'X', desc:'Sangramento leve fora do período — requer atenção.' };
+    if(isFertileMucus(r))               return { color:'red', label:'Muco fértil', code:'F', desc:'Muco elástico/transparente ou sensação lubrificativa: padrão de alta fertilidade.' };
+    if(r.muco==='cremoso' || r.sensacao==='molhada') return { color:'amber', label:'Transição', code:'C', desc:'Muco em transição — observar evolução.' };
+    if(r.muco==='pegajoso')             return { color:'amber', label:'Pegajoso/opaco', code:'P', desc:'Muco pegajoso e opaco — fase de transição.' };
+    if((r.muco==='nenhum'||!r.muco) && r.sensacao==='seca') return { color:'green', label:'Padrão infértil básico', code:'S', desc:'Sensação seca, sem muco — padrão infértil básico (PBI).' };
+    return { color:'amber', label:'A observar', code:'?', desc:'Registro sem padrão claro — observe nos próximos dias.' };
+  }
+
+  // Agrupa por ciclos (início de ciclo = primeiro dia de menstruação),
+  // identifica o Ápice (último dia de muco fértil antes do declínio, ou o
+  // dia marcado manualmente como Ápice) e aplica a Regra dos 3 dias.
+  // Também aplica o "dia de espera": um dia após relação sexual registrada
+  // fora do padrão básico infértil vira cauteloso, pois a observação do
+  // muco pode ter sido mascarada pelo fluido seminal.
+  function computeAnalysis(records){
+    const sorted = [...records].sort((a,b)=> a.date < b.date ? -1 : 1);
+    const cycles = [];
+    let current = [];
+    sorted.forEach((r,idx)=>{
+      const prev = sorted[idx-1];
+      const startsNewCycle = r.sangramento==='menstruacao' && (!prev || prev.sangramento!=='menstruacao');
+      if(startsNewCycle && current.length){ cycles.push(current); current=[]; }
+      current.push(r);
+    });
+    if(current.length) cycles.push(current);
+
+    const analyzed = [];
+    cycles.forEach(cycle=>{
+      const base = cycle.map(r=>({ rec:r, ...baseClassify(r) }));
+
+      // Ápice: usa marcação manual se existir; senão, detecta automaticamente
+      // como o último dia de muco fértil do ciclo.
+      let peakIdx = -1;
+      let manualPeakIdx = base.findIndex(b=>b.rec.manualPeak);
+      if(manualPeakIdx > -1){
+        peakIdx = manualPeakIdx;
+      } else {
+        base.forEach((b,i)=>{ if(isFertileMucus(b.rec)) peakIdx = i; });
+      }
+
+      const entries = base.map((b,i)=>({ ...b, isPeak:false, postPeakDay:0, waitDay:false, cycleDay: dayDiff(cycle[0].date, b.rec.date)+1 }));
+
+      entries.forEach((entry,i)=>{
+        if(peakIdx>-1 && i===peakIdx){
+          entry.isPeak = true;
+          entry.label = manualPeakIdx>-1 ? 'Ápice (marcado manualmente)' : 'Ápice (pico de fertilidade)';
+          entry.code = 'ÁPICE';
+          entry.color = 'red';
+          entry.desc = manualPeakIdx>-1 ? 'Dia marcado manualmente como Ápice.' : 'Último dia do padrão de muco mais fértil do ciclo — identificado automaticamente.';
+        } else if(peakIdx>-1 && i>peakIdx && i<=peakIdx+3){
+          const day = i - peakIdx;
+          entry.postPeakDay = day;
+          if(entry.rec.sangramento!=='menstruacao'){
+            entry.color = 'amber';
+            entry.label = `Regra dos 3 dias (+${day})`;
+            entry.code = String(day);
+            entry.desc = 'Dentro dos 3 dias após o Ápice — considerado fértil por segurança do método.';
+          }
+        }
+      });
+
+      // Dia de espera: o dia seguinte a uma relação registrada em dia não-verde
+      // (fora do padrão básico infértil) fica cauteloso, pois fluido seminal
+      // pode mascarar a observação do muco.
+      entries.forEach((entry,i)=>{
+        const prev = entries[i-1];
+        if(prev && prev.rec.fatores && prev.rec.fatores.includes('relacao') && prev.color!=='green' && entry.color==='green'){
+          entry.waitDay = true;
+          entry.color = 'amber';
+          entry.label = 'Dia de espera (observação após relação)';
+          entry.code = 'E';
+          entry.desc = 'Relação registrada fora do padrão básico infértil no dia anterior — observação de hoje pode estar mascarada.';
+        }
+      });
+
+      entries.forEach(e=>analyzed.push(e));
+    });
+    return analyzed; // ordenado por data asc
+  }
+
+  function fertilityMessage(entry){
+    if(!entry) return { title:'Sem registro hoje', desc:'Registre a observação de hoje para ver sua classificação.', color:'muted' };
+    if(entry.color==='red') return { title:'Alta probabilidade de fertilidade', desc:'Evite relações desprotegidas se o objetivo é espaçamento gestacional.', color:'red' };
+    if(entry.color==='amber') return { title:'Fase de transição / cautela', desc:'Padrão em mudança — mantenha atenção redobrada nas próximas observações.', color:'amber' };
+    return { title:'Baixa probabilidade de fertilidade', desc:'Padrão infértil básico identificado — menor risco para espaçamento.', color:'green' };
+  }
+
+  // Estatísticas por ciclo (duração, dia do Ápice, duração da fase lútea)
+  // e um alerta gentil — nunca diagnóstico — quando o padrão foge do comum.
+  function computeCycleStats(records){
+    const analysis = computeAnalysis(records);
+    if(analysis.length===0) return null;
+
+    const cyclesMap = [];
+    let currentCycle = [];
+    let currentStart = null;
+    analysis.forEach((e,i)=>{
+      const prev = analysis[i-1];
+      const startsNew = e.rec.sangramento==='menstruacao' && (!prev || prev.rec.sangramento!=='menstruacao');
+      if(startsNew && currentCycle.length){ cyclesMap.push({ start:currentStart, entries:currentCycle }); currentCycle=[]; }
+      if(startsNew || !currentStart) currentStart = e.rec.date;
+      currentCycle.push(e);
+    });
+    if(currentCycle.length) cyclesMap.push({ start:currentStart, entries:currentCycle });
+
+    const completedCycles = cyclesMap.slice(0, -1); // último pode estar em andamento
+    const lengths = [];
+    const peakDays = [];
+    const lutealLengths = [];
+    completedCycles.forEach((c,i)=>{
+      const next = cyclesMap[i+1];
+      if(next) lengths.push(dayDiff(c.start, next.start));
+      const peak = c.entries.find(e=>e.isPeak);
+      if(peak){
+        peakDays.push(peak.cycleDay);
+        if(next) lutealLengths.push(dayDiff(peak.rec.date, next.start));
+      }
+    });
+
+    const avg = arr => arr.length ? Math.round(arr.reduce((a,b)=>a+b,0)/arr.length) : null;
+
+    // Alerta de padrão atípico: ciclo em andamento muito longo sem Ápice identificado.
+    const openCycle = cyclesMap[cyclesMap.length-1];
+    const openCycleDay = openCycle ? dayDiff(openCycle.start, todayStr())+1 : 0;
+    const openHasPeak = openCycle ? openCycle.entries.some(e=>e.isPeak) : true;
+    const atypical = openCycleDay > 45 && !openHasPeak;
+
+    return {
+      totalCycles: cyclesMap.length,
+      completedCycles: completedCycles.length,
+      avgCycleLength: avg(lengths),
+      avgPeakDay: avg(peakDays),
+      avgLutealLength: avg(lutealLengths),
+      openCycleDay,
+      atypical,
+    };
+  }
+
+  const colorClasses = {
+    red:   { dot:'bg-fertil', text:'text-fertil', bg:'bg-fertil-bg', ring:'ring-fertil' },
+    amber: { dot:'bg-transicao', text:'text-transicao', bg:'bg-transicao-bg', ring:'ring-transicao' },
+    green: { dot:'bg-infertil', text:'text-infertil', bg:'bg-infertil-bg', ring:'ring-infertil' },
+    muted: { dot:'bg-muted', text:'text-muted', bg:'bg-primary-soft', ring:'ring-muted' },
+  };
+
+  /* ---------------------------------------------------------------------
+     ESTADO DA APLICAÇÃO
+  --------------------------------------------------------------------- */
+  let state = {
+    view: isFirebaseConfigured ? 'loading' : 'setup', // setup | loading | auth | app
+    authMode: 'login',     // login | cadastro
+    authError: '',
+    authBusy: false,
+    tab: 'dashboard',      // dashboard | registro | grafico | perfil
+    currentUser: null,
+    fbUser: null,
+    records: [],
+    recordsLoading: false,
+    draft: null,
+    toast: null,
+    paywall: null,         // { feature, message }
+    guideOpen: false,
+    emailBannerDismissed: false,
+    checkoutBusy: false,
+    portalBusy: false,
+    notifBusy: false,
+    deleteConfirmOpen: false,
+    deleteBusy: false,
+    shares: null,
+    sharesLoading: false,
+    shareBusy: false,
+    // Painel da instrutora
+    instructorTab: 'alunas',   // alunas | perfil
+    linkedStudents: null,
+    studentsLoading: false,
+    addStudentBusy: false,
+    viewingStudent: null,      // { name, records } quando um gráfico de aluna está aberto
+    viewingStudentLoading: false,
+    graficoView: 'lista',      // lista | calendario
+    showOnboarding: null,      // null = ainda não decidido nesta sessão
+    onboardingStep: 0,
+  };
+
+  function freshDraft(dateStr){
+    const existing = (state.records||[]).find(r=>r.date===dateStr);
+    if(existing) return { ...existing, fatores:[...(existing.fatores||[])], manualPeak: !!existing.manualPeak, personalBIP: !!existing.personalBIP };
+    return { id:null, date: dateStr, sensacao:'', muco:'', sangramento:'nenhum', fatores:[], notas:'', manualPeak:false, personalBIP:false };
+  }
+
+  /* ---------------------------------------------------------------------
+     APP (controlador)
+  --------------------------------------------------------------------- */
+  const App = {
+
+    init(){
+      if(!isFirebaseConfigured){ state.view='setup'; render(); return; }
+
+      // feedback de retorno do Stripe Checkout / Portal
+      const params = new URLSearchParams(window.location.search);
+      if(params.get('checkout')==='success'){ state.toast = { msg:'Pagamento confirmado! Ativando seu Premium…', type:'success', id: uid() }; }
+      else if(params.get('checkout')==='cancel'){ state.toast = { msg:'Checkout cancelado.', type:'info', id: uid() }; }
+      if(params.has('checkout')){ window.history.replaceState({}, '', window.location.pathname); }
+
+      if('serviceWorker' in navigator){
+        navigator.serviceWorker.register('/sw.js')
+          .then(reg => { window.__SW_REG__ = reg; })
+          .catch(()=>{});
+      }
+
+      auth.onAuthStateChanged(fbUser=>{
+        detachListeners();
+        state.fbUser = fbUser;
+        // reseta flags de UI transitórias a cada troca de sessão (login, logout,
+        // exclusão de conta ou expiração), para não vazar estado de uma conta pra outra
+        state.checkoutBusy = false;
+        state.portalBusy = false;
+        state.notifBusy = false;
+        state.deleteConfirmOpen = false;
+        state.deleteBusy = false;
+        state.emailBannerDismissed = false;
+        state.paywall = null;
+        state.shares = null;
+        state.sharesLoading = false;
+        state.shareBusy = false;
+        state.instructorTab = 'alunas';
+        state.linkedStudents = null;
+        state.studentsLoading = false;
+        state.addStudentBusy = false;
+        state.viewingStudent = null;
+        state.viewingStudentLoading = false;
+        state.showOnboarding = null;
+        state.onboardingStep = 0;
+        if(fbUser){
+          state.view = 'app';
+          state.tab = 'dashboard';
+          state.recordsLoading = true;
+          attachUserDocListener(fbUser);
+          attachRecordsListener(fbUser.uid);
+        } else {
+          state.view = 'auth';
+          state.currentUser = null;
+          state.records = [];
+          state.draft = null;
+        }
+        render();
+      });
+    },
+
+    /* ---------- AUTENTICAÇÃO ---------- */
+    setAuthMode(mode){ state.authMode = mode; state.authError=''; render(); },
+
+    async handleLogin(ev){
+      ev.preventDefault();
+      const fd = new FormData(ev.target);
+      const email = (fd.get('email')||'').trim().toLowerCase();
+      const password = fd.get('password')||'';
+      state.authBusy = true; state.authError=''; render();
+      try{
+        await auth.signInWithEmailAndPassword(email, password);
+      }catch(e){
+        state.authError = mapAuthError(e.code);
+      }
+      state.authBusy = false; render();
+      return false;
+    },
+
+    async forgotPassword(ev){
+      const form = ev.target.closest('form');
+      const email = (new FormData(form).get('email')||'').trim().toLowerCase();
+      if(!email){ this.toast('Digite seu e-mail no campo acima primeiro.', 'error'); return; }
+      try{
+        await auth.sendPasswordResetEmail(email);
+        this.toast('Enviamos um link de redefinição para ' + email + '.', 'success');
+      }catch(e){
+        this.toast(mapAuthError(e.code), 'error');
+      }
+    },
+
+    async handleSignup(ev){
+      ev.preventDefault();
+      const fd = new FormData(ev.target);
+      const name = (fd.get('name')||'').trim();
+      const email = (fd.get('email')||'').trim().toLowerCase();
+      const password = fd.get('password')||'';
+      const consent = fd.get('consent');
+      const role = fd.get('role')==='instrutora' ? 'instrutora' : 'aluna';
+      if(!name || !email || password.length<6){
+        state.authError = 'Preencha nome, e-mail e uma senha com 6+ caracteres.';
+        render(); return false;
+      }
+      if(!consent){
+        state.authError = 'É necessário aceitar a Política de Privacidade e os Termos de Uso.';
+        render(); return false;
+      }
+      state.authBusy = true; state.authError=''; render();
+      try{
+        const cred = await auth.createUserWithEmailAndPassword(email, password);
+        await db.collection('users').doc(cred.user.uid).set({
+          name, email, plan:'free', role,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+          consentAt: firebase.firestore.FieldValue.serverTimestamp(),
+          consentVersion: '1.0',
+        });
+        try{ await cred.user.sendEmailVerification(); }catch(e){ /* não bloqueia o cadastro */ }
+      }catch(e){
+        state.authError = mapAuthError(e.code);
+      }
+      state.authBusy = false; render();
+      return false;
+    },
+
+    async resendVerification(){
+      if(!state.fbUser) return;
+      try{
+        await state.fbUser.sendEmailVerification();
+        this.toast('E-mail de verificação reenviado.', 'success');
+      }catch(e){
+        this.toast('Aguarde um momento antes de reenviar novamente.', 'error');
+      }
+    },
+    dismissEmailBanner(){ state.emailBannerDismissed = true; render(); },
+
+    async loginAsGuest(){
+      state.authBusy = true; state.authError=''; render();
+      try{
+        const cred = await auth.signInAnonymously();
+        const uidVal = cred.user.uid;
+        const ref = db.collection('users').doc(uidVal);
+        const snap = await ref.get();
+        if(!snap.exists){
+          await ref.set({ name:'Usuária Demonstração', email:'', plan:'free', isGuest:true, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+          await seedDemoRecordsIfEmpty(uidVal);
+        }
+      }catch(e){
+        state.authError = mapAuthError(e.code);
+      }
+      state.authBusy = false; render();
+    },
+
+    async logout(){
+      detachListeners();
+      try{ await auth.signOut(); }catch(e){}
+      state = { view:'auth', authMode:'login', authError:'', authBusy:false, tab:'dashboard', currentUser:null, fbUser:null, records:[], recordsLoading:false, draft:null, toast:null, paywall:null, guideOpen:false, emailBannerDismissed:false, checkoutBusy:false, portalBusy:false, notifBusy:false, deleteConfirmOpen:false, deleteBusy:false, shares:null, sharesLoading:false, shareBusy:false, instructorTab:'alunas', linkedStudents:null, studentsLoading:false, addStudentBusy:false, viewingStudent:null, viewingStudentLoading:false, graficoView:'lista', showOnboarding:null, onboardingStep:0 };
+      render();
+    },
+
+    /* ---------- NAVEGAÇÃO ---------- */
+    setTab(tab){
+      state.tab = tab;
+      if(tab==='grafico' && state.currentUser.plan!=='premium'){
+        this.openPaywall('grafico');
+      }
+      if(tab==='perfil' && state.shares===null && !state.currentUser.isGuest){
+        this.loadShares();
+      }
+      render();
+      const main = document.getElementById('scrollArea');
+      if(main) main.scrollTop = 0;
+    },
+    setGraficoView(v){ state.graficoView = v; render(); },
+
+    /* ---------- REGISTRO DIÁRIO ---------- */
+    setDraftDate(dateStr){
+      if(dateStr > todayStr()) dateStr = todayStr();
+      state.draft = freshDraft(dateStr);
+      render();
+    },
+    setDraft(field, value){ state.draft[field] = value; render(); },
+    toggleFator(id){
+      const arr = state.draft.fatores;
+      const i = arr.indexOf(id);
+      if(i>-1) arr.splice(i,1); else arr.push(id);
+      render();
+    },
+    async saveDraft(ev){
+      if(ev) ev.preventDefault();
+      const d = state.draft;
+      if(!d.sensacao || !d.muco){
+        this.toast('Selecione sensação vulvar e aspecto do muco.', 'error');
+        return false;
+      }
+      const record = { date:d.date, sensacao:d.sensacao, muco:d.muco, sangramento:d.sangramento, fatores:[...d.fatores], notas:d.notas||'', manualPeak:!!d.manualPeak, personalBIP:!!d.personalBIP };
+      try{
+        await db.collection('users').doc(state.currentUser.id).collection('records').doc(d.date).set(record);
+        this.toast('Registro salvo com sucesso!', 'success');
+        state.tab = 'dashboard';
+        state.draft = freshDraft(todayStr());
+      }catch(e){
+        this.toast('Erro ao salvar. Tente novamente.', 'error');
+      }
+      render();
+      return false;
+    },
+    toggleManualPeak(){ state.draft.manualPeak = !state.draft.manualPeak; render(); },
+    togglePersonalBIP(){ state.draft.personalBIP = !state.draft.personalBIP; render(); },
+    editDate(dateStr){
+      state.draft = freshDraft(dateStr);
+      state.tab = 'registro';
+      render();
+      const main = document.getElementById('scrollArea');
+      if(main) main.scrollTop = 0;
+    },
+
+    /* ---------- PLANO / PAYWALL ---------- */
+    openPaywall(feature){ state.paywall = feature || 'geral'; render(); },
+    closePaywall(){ state.paywall = null; render(); },
+    async subscribe(){
+      if(state.fbUser && state.fbUser.isAnonymous){
+        this.toast('Crie uma conta com e-mail e senha para assinar o Premium.', 'error');
+        return;
+      }
+      state.checkoutBusy = true; render();
+      try{
+        const idToken = await state.fbUser.getIdToken();
+        const resp = await fetch('/api/create-checkout-session', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + idToken },
+        });
+        const data = await resp.json();
+        if(!resp.ok || !data.url) throw new Error(data.error || 'Falha ao iniciar checkout.');
+        window.location.href = data.url; // redireciona para o Stripe Checkout
+      }catch(e){
+        this.toast(e.message || 'Não foi possível iniciar o pagamento agora.', 'error');
+        state.checkoutBusy = false; render();
+      }
+    },
+    async manageBilling(){
+      state.portalBusy = true; render();
+      try{
+        const idToken = await state.fbUser.getIdToken();
+        const resp = await fetch('/api/create-portal-session', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + idToken },
+        });
+        const data = await resp.json();
+        if(!resp.ok || !data.url) throw new Error(data.error || 'Falha ao abrir o portal.');
+        window.location.href = data.url;
+      }catch(e){
+        this.toast(e.message || 'Não foi possível abrir o portal de assinatura.', 'error');
+        state.portalBusy = false; render();
+      }
+    },
+    async togglePlanTest(){
+      const novo = state.currentUser.plan==='premium' ? 'free' : 'premium';
+      try{
+        await db.collection('users').doc(state.currentUser.id).update({ plan: novo });
+        this.toast(`Modo de teste: plano agora é ${novo==='premium'?'Premium':'Gratuito'}.`, 'info');
+      }catch(e){
+        this.toast('Não foi possível atualizar o plano agora.', 'error');
+      }
+      render();
+    },
+
+    /* ---------- FASE REPRODUTIVA ---------- */
+    async setReproductivePhase(phase){
+      try{
+        await db.collection('users').doc(state.currentUser.id).update({ reproductivePhase: phase });
+        this.toast('Fase reprodutiva atualizada.', 'success');
+      }catch(e){
+        this.toast('Não foi possível atualizar agora.', 'error');
+      }
+      render();
+    },
+
+    /* ---------- COMPARTILHAMENTO (instrutora / parceiro) ---------- */
+    async loadShares(){
+      if(state.currentUser.isGuest) return;
+      state.sharesLoading = true; render();
+      try{
+        const snap = await db.collection('shares').where('ownerUid','==', state.currentUser.id).get();
+        const now = Date.now();
+        state.shares = snap.docs
+          .map(d=>({ id:d.id, ...d.data() }))
+          .filter(s=> s.expiresAt && s.expiresAt.toMillis() > now)
+          .sort((a,b)=> b.createdAt.toMillis() - a.createdAt.toMillis());
+      }catch(e){
+        state.shares = [];
+      }
+      state.sharesLoading = false; render();
+    },
+    async createShareLink(){
+      // limites simples anti-abuso: no máximo 5 links ativos, e um intervalo
+      // mínimo entre criações (evita gerar dezenas de links em segundos)
+      const active = state.shares || [];
+      if(active.length >= 5){
+        this.toast('Limite de 5 links ativos atingido. Revogue um antes de criar outro.', 'error');
+        return;
+      }
+      const lastCreated = active.reduce((max,s)=> s.createdAt && s.createdAt.toMillis() > max ? s.createdAt.toMillis() : max, 0);
+      if(lastCreated && (Date.now() - lastCreated) < 60000){
+        this.toast('Aguarde um minuto antes de gerar outro link.', 'error');
+        return;
+      }
+
+      state.shareBusy = true; render();
+      try{
+        const expiresAt = firebase.firestore.Timestamp.fromDate(new Date(Date.now() + 30*24*60*60*1000));
+        const ref = await db.collection('shares').add({
+          ownerUid: state.currentUser.id,
+          ownerName: state.currentUser.name,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+          expiresAt,
+        });
+        const url = `${window.location.origin}/share.html?id=${ref.id}`;
+        try{
+          await navigator.clipboard.writeText(url);
+          this.toast('Link copiado! Válido por 30 dias.', 'success');
+        }catch(e){
+          this.toast('Link gerado: ' + url, 'info');
+        }
+        await this.loadShares();
+      }catch(e){
+        this.toast('Não foi possível gerar o link agora.', 'error');
+        state.shareBusy = false; render();
+      }
+      state.shareBusy = false; render();
+    },
+    async revokeShare(shareId){
+      try{
+        await db.collection('shares').doc(shareId).delete();
+        this.toast('Compartilhamento revogado.', 'info');
+        await this.loadShares();
+      }catch(e){
+        this.toast('Não foi possível revogar agora.', 'error');
+      }
+    },
+
+    /* ---------- PAINEL DA INSTRUTORA ---------- */
+    setInstructorTab(tab){
+      state.instructorTab = tab;
+      if(tab==='alunas' && state.linkedStudents===null){ this.loadLinkedStudents(); }
+      render();
+    },
+    async loadLinkedStudents(){
+      state.studentsLoading = true; render();
+      try{
+        const snap = await db.collection('instructors').doc(state.currentUser.id).collection('students').get();
+        state.linkedStudents = snap.docs.map(d=>({ id:d.id, ...d.data() }));
+      }catch(e){
+        state.linkedStudents = [];
+      }
+      state.studentsLoading = false; render();
+    },
+    async addStudentByCode(ev){
+      ev.preventDefault();
+      const fd = new FormData(ev.target);
+      let code = (fd.get('code')||'').trim();
+      // aceita tanto o link inteiro quanto só o id
+      const match = code.match(/[?&]id=([^&]+)/);
+      if(match) code = match[1];
+      if(!code){ this.toast('Cole o código ou link que a aluna te enviou.', 'error'); return; }
+
+      state.addStudentBusy = true; render();
+      try{
+        const base = window.__FUNCTIONS_BASE_URL__;
+        if(!base || base==='SUA_FUNCTIONS_URL_AQUI') throw new Error('Recurso ainda não configurado pelo administrador do app.');
+        const resp = await fetch(`${base}?shareId=${encodeURIComponent(code)}`, { headers: await getAppCheckHeaders() });
+        const data = await resp.json();
+        if(!resp.ok) throw new Error(data.error || 'Código inválido ou expirado.');
+
+        await db.collection('instructors').doc(state.currentUser.id).collection('students').doc(code).set({
+          shareId: code,
+          studentName: data.ownerName || 'Aluna',
+          addedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        });
+        this.toast('Aluna vinculada com sucesso!', 'success');
+        ev.target.reset();
+        await this.loadLinkedStudents();
+      }catch(e){
+        this.toast(e.message || 'Não foi possível vincular agora.', 'error');
+      }
+      state.addStudentBusy = false; render();
+    },
+    async removeStudent(shareId){
+      try{
+        await db.collection('instructors').doc(state.currentUser.id).collection('students').doc(shareId).delete();
+        this.toast('Aluna desvinculada.', 'info');
+        await this.loadLinkedStudents();
+      }catch(e){
+        this.toast('Não foi possível desvincular agora.', 'error');
+      }
+    },
+    async openStudentChart(shareId){
+      state.viewingStudent = { loading:true };
+      state.viewingStudentLoading = true; render();
+      try{
+        const base = window.__FUNCTIONS_BASE_URL__;
+        const resp = await fetch(`${base}?shareId=${encodeURIComponent(shareId)}`, { headers: await getAppCheckHeaders() });
+        const data = await resp.json();
+        if(!resp.ok) throw new Error(data.error || 'Não foi possível abrir este gráfico.');
+        state.viewingStudent = { name: data.ownerName, analysis: computeAnalysis(data.records || []).slice().reverse() };
+      }catch(e){
+        this.toast(e.message || 'Link expirado ou revogado pela aluna.', 'error');
+        state.viewingStudent = null;
+      }
+      state.viewingStudentLoading = false; render();
+    },
+    closeStudentChart(){ state.viewingStudent = null; render(); },
+
+    /* ---------- NOTIFICAÇÕES (lembrete diário) ---------- */
+    async toggleNotifications(){
+      const wantsOn = !state.currentUser.fcmToken;
+      state.notifBusy = true; render();
+      try{
+        if(wantsOn){
+          if(!('Notification' in window)) throw new Error('Este navegador não suporta notificações.');
+          const perm = await Notification.requestPermission();
+          if(perm !== 'granted') throw new Error('Permissão de notificação negada.');
+          const swReg = window.__SW_REG__ || await navigator.serviceWorker.ready;
+          const messaging = firebase.messaging();
+          const token = await messaging.getToken({ vapidKey: window.__FCM_VAPID_KEY__, serviceWorkerRegistration: swReg });
+          if(!token) throw new Error('Não foi possível gerar o token de notificação.');
+          await db.collection('users').doc(state.currentUser.id).update({ fcmToken: token });
+          this.toast('Lembrete diário ativado.', 'success');
+        } else {
+          await db.collection('users').doc(state.currentUser.id).update({ fcmToken: firebase.firestore.FieldValue.delete() });
+          this.toast('Lembrete diário desativado.', 'info');
+        }
+      }catch(e){
+        this.toast(e.message || 'Não foi possível alterar as notificações.', 'error');
+      }
+      state.notifBusy = false; render();
+    },
+
+    /* ---------- LGPD: EXPORTAR / EXCLUIR CONTA ---------- */
+    exportMyData(){
+      const payload = {
+        perfil: { nome: state.currentUser.name, email: state.currentUser.email, plano: state.currentUser.plan },
+        registros: state.records,
+        exportadoEm: new Date().toISOString(),
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type:'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `meus-dados-ciclo-consciente-${todayStr()}.json`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+      this.toast('Seus dados foram exportados.', 'success');
+    },
+    openDeleteConfirm(){ state.deleteConfirmOpen = true; render(); },
+    closeDeleteConfirm(){ state.deleteConfirmOpen = false; render(); },
+    async confirmDeleteAccount(){
+      state.deleteBusy = true; render();
+      try{
+        const uidVal = state.currentUser.id;
+        const col = db.collection('users').doc(uidVal).collection('records');
+        // apaga em lotes de até 400 documentos
+        let snap = await col.limit(400).get();
+        while(!snap.empty){
+          const batch = db.batch();
+          snap.docs.forEach(d=>batch.delete(d.ref));
+          await batch.commit();
+          snap = await col.limit(400).get();
+        }
+        await db.collection('users').doc(uidVal).delete();
+        await auth.currentUser.delete();
+        // onAuthStateChanged cuida de limpar o estado e voltar para a tela de login
+      }catch(e){
+        if(e.code === 'auth/requires-recent-login'){
+          this.toast('Por segurança, saia e entre novamente antes de excluir a conta.', 'error');
+        } else {
+          this.toast('Não foi possível excluir a conta agora.', 'error');
+        }
+        state.deleteBusy = false; state.deleteConfirmOpen = false; render();
+      }
+    },
+
+    /* ---------- GUIA ---------- */
+    toggleGuide(){ state.guideOpen = !state.guideOpen; render(); },
+
+    /* ---------- ONBOARDING ---------- */
+    nextOnboardingStep(){
+      if(state.onboardingStep >= 3){ this.finishOnboarding(); return; }
+      state.onboardingStep++; render();
+    },
+    prevOnboardingStep(){ if(state.onboardingStep>0){ state.onboardingStep--; render(); } },
+    async finishOnboarding(){
+      state.showOnboarding = false; render();
+      try{ await db.collection('users').doc(state.currentUser.id).update({ onboardingSeen:true }); }catch(e){}
+    },
+
+    /* ---------- EXPORTAÇÃO PDF (premium) ---------- */
+    exportReport(){
+      if(state.currentUser.plan!=='premium'){ this.openPaywall('pdf'); return; }
+      try{
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+        const analysis = computeAnalysis(state.records || []);
+        const rgb = { red:[179,70,50], amber:[184,128,42], green:[76,122,87] };
+        let y = 18;
+        doc.setFont('helvetica','bold'); doc.setFontSize(16);
+        doc.text('Relatório de Acompanhamento — Método Billings', 14, y); y+=8;
+        doc.setFont('helvetica','normal'); doc.setFontSize(10);
+        doc.text(`Usuária: ${state.currentUser.name}   |   Gerado em: ${fmtBRFull(todayStr())}`, 14, y); y+=10;
+        doc.setDrawColor(200); doc.line(14,y,196,y); y+=9;
+
+        doc.setFont('helvetica','bold'); doc.setFontSize(11);
+        doc.text('Data', 26, y); doc.text('Classificação', 52, y); doc.text('Sensação/Muco', 118, y); doc.text('Obs.', 168, y);
+        y += 5; doc.setDrawColor(230); doc.line(14,y,196,y); y+=6;
+        doc.setFont('helvetica','normal'); doc.setFontSize(9);
+
+        analysis.forEach(e=>{
+          if(y>282){ doc.addPage(); y=18; }
+          // estampa colorida, imitando o carimbo clássico do gráfico Billings
+          const [r,g,b] = rgb[e.color] || rgb.amber;
+          doc.setFillColor(r,g,b);
+          doc.circle(17, y-1.5, 3.2, 'F');
+          doc.setTextColor(255,255,255); doc.setFontSize(6);
+          doc.text(String(e.code).slice(0,2), 17, y-0.2, { align:'center' });
+          doc.setTextColor(20,20,20); doc.setFontSize(9);
+
+          doc.text(fmtBRFull(e.rec.date), 26, y);
+          doc.text(String(e.label).slice(0,24) + (e.isPeak?' 🌸':''), 52, y);
+          doc.text(`${label(SENSACAO_OPTIONS,e.rec.sensacao)} / ${label(MUCUS_OPTIONS,e.rec.muco)}`.slice(0,32), 118, y);
+          doc.text((e.rec.notas||'-').slice(0,16), 168, y);
+          y += 7.5;
+        });
+
+        // legenda de cores
+        if(y>260){ doc.addPage(); y=18; } else { y += 6; }
+        doc.setDrawColor(230); doc.line(14,y,196,y); y+=8;
+        doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.text('Legenda', 14, y); y+=7;
+        doc.setFont('helvetica','normal'); doc.setFontSize(8);
+        [['red','Fértil / Ápice / Regra dos 3 dias'],['amber','Transição / cautela'],['green','Infértil (Padrão Básico)']].forEach(([c,txt])=>{
+          const [r,g,b] = rgb[c];
+          doc.setFillColor(r,g,b); doc.circle(17, y-1.2, 2.6, 'F');
+          doc.setTextColor(20,20,20); doc.text(txt, 24, y);
+          y += 6;
+        });
+
+        doc.save(`relatorio-billings-${todayStr()}.pdf`);
+        this.toast('Relatório PDF exportado.', 'success');
+      }catch(e){
+        this.toast('Não foi possível gerar o PDF neste navegador.', 'error');
+      }
+    },
+
+    /* ---------- TOAST ---------- */
+    toast(msg, type){
+      state.toast = { msg, type: type||'info', id: uid() };
+      render();
+      const myId = state.toast.id;
+      setTimeout(()=>{ if(state.toast && state.toast.id===myId){ state.toast=null; render(); } }, 2600);
+    },
+  };
+  window.App = App;
+
+  /* ---------------------------------------------------------------------
+     RENDER — CONFIGURAÇÃO PENDENTE / CARREGANDO
+  --------------------------------------------------------------------- */
+  function renderSetup(){
+    return `
+    <div class="flex-1 flex flex-col bg-primary text-white px-7 py-14 anim-fadeIn">
+      <div class="w-12 h-12 rounded-2xl bg-white/15 flex items-center justify-center mb-5">${icon('shield','w-6 h-6 text-white')}</div>
+      <h1 class="font-display text-3xl leading-tight mb-3">Configure o Firebase</h1>
+      <p class="text-white/75 text-sm leading-relaxed mb-6">Antes de usar o app, cole as credenciais do seu projeto Firebase no bloco <code class="bg-white/15 px-1.5 py-0.5 rounded">window.__FIREBASE_CONFIG__</code>, no &lt;head&gt; do <code class="bg-white/15 px-1.5 py-0.5 rounded">index.html</code>.</p>
+      <ol class="space-y-3 text-sm text-white/85 list-decimal list-inside">
+        <li>Crie um projeto em <span class="font-mono">console.firebase.google.com</span>.</li>
+        <li>Ative <b>Authentication</b> → métodos <b>E-mail/senha</b> e <b>Anônimo</b>.</li>
+        <li>Crie um <b>Firestore Database</b> (modo produção).</li>
+        <li>Cole as Regras de Segurança do arquivo <span class="font-mono">firestore.rules</span>.</li>
+        <li>Em Configurações do projeto → Seus apps, copie o <b>SDK config</b> para o topo do arquivo.</li>
+        <li>Adicione o domínio do Vercel em Authentication → Settings → Authorized domains.</li>
+      </ol>
+      <p class="text-white/60 text-xs mt-8">Veja o README.md do projeto para o passo a passo completo.</p>
+    </div>`;
+  }
+
+  function renderLoading(){
+    return `
+    <div class="flex-1 flex items-center justify-center bg-canvas anim-fadeIn">
+      <div class="flex flex-col items-center gap-3">
+        <div class="w-9 h-9 rounded-full border-2 border-primary/20 border-t-primary animate-spin"></div>
+        <p class="text-xs text-muted font-medium">Carregando…</p>
+      </div>
+    </div>`;
+  }
+
+  /* ---------------------------------------------------------------------
+     RENDER — AUTENTICAÇÃO
+  --------------------------------------------------------------------- */
+  function renderAuth(){
+    const isLogin = state.authMode==='login';
+    return `
+    <div class="flex-1 flex flex-col bg-primary text-white relative overflow-hidden anim-fadeIn">
+      <svg class="absolute -top-24 -right-24 opacity-20" width="320" height="320" viewBox="0 0 320 320">
+        <circle cx="160" cy="160" r="150" fill="none" stroke="white" stroke-width="1.5"/>
+        <circle cx="160" cy="160" r="110" fill="none" stroke="white" stroke-width="1.5"/>
+      </svg>
+      <div class="relative px-8 pt-16 pb-8">
+        <div class="w-12 h-12 rounded-2xl bg-white/15 flex items-center justify-center mb-5">${icon('drop','w-6 h-6 text-white')}</div>
+        <h1 class="font-display text-4xl leading-tight">Ciclo<br/>Consciente</h1>
+        <p class="text-white/70 mt-3 text-sm max-w-[280px]">Acompanhamento do Método de Ovulação Billings para espaçamento gestacional consciente.</p>
+      </div>
+
+      <div class="relative flex-1 bg-canvas text-ink rounded-t-[2.25rem] px-6 pt-7 pb-10 anim-fadeUp">
+        <div class="flex bg-primary-soft rounded-full p-1 mb-6">
+          <button class="tap flex-1 py-2.5 rounded-full text-sm font-semibold transition ${isLogin ? 'bg-primary text-white shadow-soft' : 'text-primary/70'}" onclick="App.setAuthMode('login')">Entrar</button>
+          <button class="tap flex-1 py-2.5 rounded-full text-sm font-semibold transition ${!isLogin ? 'bg-primary text-white shadow-soft' : 'text-primary/70'}" onclick="App.setAuthMode('cadastro')">Cadastrar</button>
+        </div>
+
+        ${state.authError ? `<div class="mb-4 text-sm bg-fertil-bg text-fertil px-4 py-3 rounded-xl">${esc(state.authError)}</div>` : ''}
+
+        ${isLogin ? `
+        <form onsubmit="return App.handleLogin(event)" class="space-y-4">
+          <div>
+            <label class="text-xs font-semibold text-muted uppercase tracking-wide">E-mail</label>
+            <input name="email" type="email" required placeholder="voce@email.com" class="mt-1.5 w-full border border-primary/15 rounded-xl px-4 py-3 bg-white focus:outline-none focus:ring-2 focus:ring-primary/40">
+          </div>
+          <div>
+            <div class="flex items-center justify-between">
+              <label class="text-xs font-semibold text-muted uppercase tracking-wide">Senha</label>
+              <button type="button" onclick="App.forgotPassword(event)" class="text-[11px] font-semibold text-primary">Esqueci minha senha</button>
+            </div>
+            <input name="password" type="password" required placeholder="••••••••" class="mt-1.5 w-full border border-primary/15 rounded-xl px-4 py-3 bg-white focus:outline-none focus:ring-2 focus:ring-primary/40">
+          </div>
+          <button type="submit" ${state.authBusy?'disabled':''} class="tap w-full bg-primary text-white font-semibold py-3.5 rounded-xl shadow-soft disabled:opacity-60">${state.authBusy?'Entrando…':'Entrar'}</button>
+        </form>
+        ` : `
+        <form onsubmit="return App.handleSignup(event)" class="space-y-4">
+          <div>
+            <label class="text-xs font-semibold text-muted uppercase tracking-wide">Nome</label>
+            <input name="name" type="text" required placeholder="Seu nome" class="mt-1.5 w-full border border-primary/15 rounded-xl px-4 py-3 bg-white focus:outline-none focus:ring-2 focus:ring-primary/40">
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-muted uppercase tracking-wide">E-mail</label>
+            <input name="email" type="email" required placeholder="voce@email.com" class="mt-1.5 w-full border border-primary/15 rounded-xl px-4 py-3 bg-white focus:outline-none focus:ring-2 focus:ring-primary/40">
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-muted uppercase tracking-wide">Senha</label>
+            <input name="password" type="password" required placeholder="mínimo 6 caracteres" class="mt-1.5 w-full border border-primary/15 rounded-xl px-4 py-3 bg-white focus:outline-none focus:ring-2 focus:ring-primary/40">
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-muted uppercase tracking-wide">Você é</label>
+            <div class="mt-1.5 grid grid-cols-2 gap-2">
+              <label class="border border-primary/15 rounded-xl px-3 py-2.5 flex items-center gap-2 has-[:checked]:border-primary has-[:checked]:bg-primary-soft">
+                <input type="radio" name="role" value="aluna" checked class="accent-[#4A2545]">
+                <span class="text-xs font-semibold">Aluna</span>
+              </label>
+              <label class="border border-primary/15 rounded-xl px-3 py-2.5 flex items-center gap-2 has-[:checked]:border-primary has-[:checked]:bg-primary-soft">
+                <input type="radio" name="role" value="instrutora" class="accent-[#4A2545]">
+                <span class="text-xs font-semibold">Instrutora certificada</span>
+              </label>
+            </div>
+          </div>
+          <label class="flex items-start gap-2.5 text-[11px] text-muted leading-relaxed pt-1">
+            <input type="checkbox" name="consent" required class="mt-0.5 accent-[#4A2545]">
+            <span>Li e concordo com a <a href="/privacy.html" target="_blank" class="text-primary font-semibold underline">Política de Privacidade</a> e os <a href="/terms.html" target="_blank" class="text-primary font-semibold underline">Termos de Uso</a>, incluindo o tratamento dos meus dados de saúde para o funcionamento do app.</span>
+          </label>
+          <button type="submit" ${state.authBusy?'disabled':''} class="tap w-full bg-primary text-white font-semibold py-3.5 rounded-xl shadow-soft disabled:opacity-60">${state.authBusy?'Criando conta…':'Criar conta'}</button>
+        </form>
+        `}
+
+        <div class="flex items-center gap-3 my-6">
+          <div class="h-px bg-primary/10 flex-1"></div>
+          <span class="text-xs text-muted">ou</span>
+          <div class="h-px bg-primary/10 flex-1"></div>
+        </div>
+
+        <button ${state.authBusy?'disabled':''} class="tap w-full border border-primary/20 text-primary font-semibold py-3.5 rounded-xl flex items-center justify-center gap-2 disabled:opacity-60" onclick="App.loginAsGuest()">
+          ${icon('sparkle','w-4 h-4')} Entrar como Convidada (Demonstração)
+        </button>
+        <p class="text-[11px] text-muted text-center mt-4 leading-relaxed">Modo demonstração carrega um histórico de exemplo. Você poderá alternar entre plano Gratuito e Premium na tela de Perfil.</p>
+      </div>
+    </div>`;
+  }
+
+  /* ---------------------------------------------------------------------
+     RENDER — SHELL (header + tabs + conteúdo)
+  --------------------------------------------------------------------- */
+  function renderShell(){
+    const u = state.currentUser;
+    const isPremium = u.plan==='premium';
+    const tabs = [
+      { id:'dashboard', label:'Painel', ic:'home' },
+      { id:'registro',  label:'Registro', ic:'edit' },
+      { id:'grafico',   label:'Gráfico', ic:'chart', locked: !isPremium },
+      { id:'perfil',    label:'Perfil', ic:'user' },
+    ];
+    const titles = { dashboard:'Painel do dia', registro:'Registro diário', grafico:'Gráfico Billings', perfil:'Perfil & Plano' };
+
+    const needsVerification = state.fbUser && !state.fbUser.isAnonymous && !state.fbUser.emailVerified && !state.emailBannerDismissed;
+
+    return `
+    <div class="flex-1 flex flex-col min-h-screen anim-fadeIn">
+      <header class="bg-primary text-white px-6 pt-7 pb-5 rounded-b-[1.75rem] shadow-soft relative overflow-hidden shrink-0">
+        <svg class="absolute -right-10 -top-10 opacity-15" width="150" height="150" viewBox="0 0 150 150"><circle cx="75" cy="75" r="70" fill="none" stroke="white" stroke-width="1.5"/></svg>
+        <div class="relative flex items-center justify-between">
+          <div>
+            <p class="text-white/60 text-xs font-medium tracking-wide uppercase">${titles[state.tab]}</p>
+            <h1 class="font-display text-2xl mt-0.5">Olá, ${esc(u.name.split(' ')[0])}</h1>
+          </div>
+          <span class="text-[11px] font-semibold px-3 py-1.5 rounded-full ${isPremium ? 'bg-white text-primary' : 'bg-white/15 text-white'}">
+            ${isPremium ? '★ Premium' : 'Plano Grátis'}
+          </span>
+        </div>
+      </header>
+
+      <main id="scrollArea" class="flex-1 overflow-y-auto px-5 pt-5 pb-28">
+        ${!isOnline ? `
+        <div class="flex items-center gap-2.5 bg-primary-soft text-primary rounded-2xl p-3 mb-4 text-xs font-semibold anim-fadeUp">
+          ${icon('alert','w-4 h-4 shrink-0')} Sem conexão — seus registros serão salvos e sincronizados automaticamente quando a internet voltar.
+        </div>` : ''}
+        ${needsVerification ? `
+        <div class="flex items-start gap-3 bg-transicao-bg text-transicao rounded-2xl p-3.5 mb-4 anim-fadeUp">
+          ${icon('mail','w-4 h-4 mt-0.5 shrink-0')}
+          <div class="flex-1 min-w-0">
+            <p class="text-xs font-semibold">Confirme seu e-mail</p>
+            <p class="text-[11px] mt-0.5 leading-relaxed">Enviamos um link para ${esc(state.fbUser.email||'')}. Verifique sua caixa de entrada.</p>
+            <button onclick="App.resendVerification()" class="text-[11px] font-semibold underline mt-1">Reenviar e-mail</button>
+          </div>
+          <button onclick="App.dismissEmailBanner()" class="shrink-0">${icon('x','w-3.5 h-3.5')}</button>
+        </div>` : ''}
+        ${state.tab==='dashboard' ? renderDashboard() : ''}
+        ${state.tab==='registro' ? renderRegistro() : ''}
+        ${state.tab==='grafico' ? renderGrafico() : ''}
+        ${state.tab==='perfil' ? renderPerfil() : ''}
+      </main>
+
+      <nav class="absolute bottom-0 left-0 right-0 bg-white shadow-nav safe-bottom border-t border-primary/5">
+        <div class="grid grid-cols-4">
+          ${tabs.map(t=>`
+            <button class="tap relative flex flex-col items-center gap-1 py-3" onclick="App.setTab('${t.id}')">
+              <span class="relative ${state.tab===t.id ? 'text-primary' : 'text-muted'}">
+                ${icon(t.ic,'w-5 h-5')}
+                ${t.locked ? `<span class="absolute -right-2 -top-1.5 bg-transicao rounded-full w-3.5 h-3.5 flex items-center justify-center">${icon('lock','w-2 h-2 text-white')}</span>` : ''}
+              </span>
+              <span class="text-[10px] font-semibold ${state.tab===t.id ? 'text-primary' : 'text-muted'}">${t.label}</span>
+            </button>
+          `).join('')}
+        </div>
+      </nav>
+
+      ${state.paywall ? renderPaywall() : ''}
+      ${state.deleteConfirmOpen ? renderDeleteConfirm() : ''}
+      ${state.showOnboarding ? renderOnboarding() : ''}
+      ${state.toast ? renderToast() : ''}
+    </div>`;
+  }
+
+  /* ---------- DASHBOARD ---------- */
+  function renderDashboard(){
+    const u = state.currentUser;
+    const records = state.records || [];
+    const analysis = computeAnalysis(records);
+    const todayEntry = analysis.find(e=>e.rec.date===todayStr());
+    const msg = fertilityMessage(todayEntry);
+    const cc = colorClasses[msg.color];
+
+    // ring: dia do ciclo atual
+    const lastPeriodStart = [...records].filter(r=>r.sangramento==='menstruacao').sort((a,b)=>a.date<b.date?1:-1)[0];
+    const cycleDay = lastPeriodStart ? dayDiff(lastPeriodStart.date, todayStr())+1 : null;
+    const ringPct = cycleDay ? Math.min(cycleDay/28,1) : 0;
+    const circumference = 2*Math.PI*42;
+    const dashOffset = circumference * (1-ringPct);
+    const ringColor = todayEntry ? colorClasses[todayEntry.color].text : 'text-muted';
+
+    const last7 = analysis.slice(-7);
+
+    return `
+    <div class="space-y-5">
+      <!-- Card do dia + anel de ciclo -->
+      <div class="bg-white rounded-2xl p-5 shadow-soft flex items-center gap-4 anim-fadeUp">
+        <svg width="92" height="92" viewBox="0 0 100 100" class="shrink-0 -rotate-90">
+          <circle cx="50" cy="50" r="42" fill="none" stroke-width="7" class="ring-track"/>
+          <circle cx="50" cy="50" r="42" fill="none" stroke-width="7" stroke="currentColor" stroke-linecap="round"
+            class="${ringColor}" stroke-dasharray="${circumference}" stroke-dashoffset="${dashOffset}"/>
+        </svg>
+        <div class="flex-1">
+          <p class="text-xs text-muted font-medium">${cycleDay ? `Dia ${cycleDay} do ciclo` : 'Ciclo não iniciado'}</p>
+          <p class="font-display text-lg mt-0.5 ${cc.text}">${msg.title}</p>
+          <p class="text-xs text-muted mt-1 leading-relaxed">${msg.desc}</p>
+        </div>
+      </div>
+
+      ${!todayEntry ? `
+      <button onclick="App.setTab('registro')" class="tap w-full bg-primary text-white rounded-2xl p-4 flex items-center justify-between shadow-soft anim-fadeUp">
+        <span class="text-left">
+          <span class="block font-semibold text-sm">Registrar observação de hoje</span>
+          <span class="block text-white/70 text-xs mt-0.5">${fmtBRFull(todayStr())}</span>
+        </span>
+        ${icon('plus','w-5 h-5')}
+      </button>` : `
+      <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp">
+        <p class="text-xs font-semibold text-muted uppercase tracking-wide mb-2">Registro de hoje</p>
+        <div class="flex flex-wrap gap-2 text-xs">
+          <span class="px-3 py-1.5 rounded-full bg-primary-soft text-primary font-medium">${label(SENSACAO_OPTIONS, todayEntry.rec.sensacao)}</span>
+          <span class="px-3 py-1.5 rounded-full bg-primary-soft text-primary font-medium">${label(MUCUS_OPTIONS, todayEntry.rec.muco)}</span>
+        </div>
+        <button class="tap text-xs font-semibold text-primary mt-3" onclick="App.editDate('${todayStr()}')">Editar registro →</button>
+      </div>`}
+
+      <!-- Últimos 7 dias -->
+      <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp">
+        <div class="flex items-center justify-between mb-3">
+          <p class="text-xs font-semibold text-muted uppercase tracking-wide">Últimos 7 dias</p>
+          <span class="text-[10px] text-muted">Plano Grátis</span>
+        </div>
+        <div class="flex justify-between">
+          ${last7.map(e=>`
+            <div class="flex flex-col items-center gap-1.5">
+              <div class="w-8 h-8 rounded-full ${colorClasses[e.color].dot} flex items-center justify-center text-white text-[10px] font-bold font-mono">${e.code}</div>
+              <span class="text-[10px] text-muted font-mono">${fmtBR(e.rec.date)}</span>
+            </div>
+          `).join('')}
+          ${last7.length===0 ? `<p class="text-xs text-muted">Sem registros ainda.</p>` : ''}
+        </div>
+      </div>
+
+      <!-- Teaser Premium -->
+      ${u.plan!=='premium' ? `
+      <button onclick="App.openPaywall('grafico')" class="tap w-full text-left bg-gradient-to-br from-primary to-primary-dark text-white rounded-2xl p-4 shadow-soft anim-fadeUp relative overflow-hidden">
+        <svg class="absolute -right-6 -bottom-6 opacity-20" width="110" height="110" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1"><circle cx="12" cy="12" r="10"/></svg>
+        <div class="flex items-center gap-2 mb-1">${icon('lock','w-4 h-4')}<span class="text-xs font-semibold uppercase tracking-wide text-white/80">Recurso Premium</span></div>
+        <p class="font-display text-lg">Gráfico completo + Ápice automático</p>
+        <p class="text-xs text-white/70 mt-1">Veja a Regra dos 3 dias, histórico ilimitado e exporte relatórios em PDF.</p>
+      </button>` : ''}
+
+      <!-- Guia introdutório -->
+      <div class="bg-white rounded-2xl shadow-soft overflow-hidden anim-fadeUp">
+        <button class="tap w-full flex items-center justify-between p-4" onclick="App.toggleGuide()">
+          <span class="flex items-center gap-2 text-sm font-semibold text-primary">${icon('book','w-4 h-4')} O que é o Método Billings?</span>
+          <span class="transition-transform ${state.guideOpen?'rotate-90':''}">${icon('chevron','w-4 h-4 text-muted')}</span>
+        </button>
+        ${state.guideOpen ? `
+        <div class="px-4 pb-4 text-xs text-muted leading-relaxed space-y-2 anim-fadeUp">
+          <p>O Método de Ovulação Billings (MOB) identifica os dias férteis e inférteis do ciclo por meio da observação diária da sensação vulvar e do aspecto do muco cervical.</p>
+          <p>Ele pode ser usado tanto para alcançar quanto para espaçar uma gravidez, com base em padrões reconhecidos ao longo do ciclo: o Padrão Infértil Básico (seco), a fase de transição e o Ápice da fertilidade.</p>
+          <p class="italic">Este app é uma ferramenta educativa de apoio e não substitui o acompanhamento com uma instrutora certificada no método ou profissional de saúde.</p>
+        </div>` : ''}
+      </div>
+    </div>`;
+  }
+
+  /* ---------- REGISTRO ---------- */
+  function cardSelect(options, field, current, cols){
+    cols = cols || 2;
+    return `<div class="grid grid-cols-${cols} gap-2">
+      ${options.map(o=>`
+        <button type="button" onclick="App.setDraft('${field}','${o.id}')"
+          class="tap text-left border rounded-xl px-3 py-2.5 ${current===o.id ? 'border-primary bg-primary-soft ring-1 ring-primary' : 'border-primary/10 bg-white'}">
+          <span class="block text-xs font-semibold ${current===o.id ? 'text-primary' : 'text-ink'}">${o.label}</span>
+          ${o.hint ? `<span class="block text-[10px] text-muted mt-0.5">${o.hint}</span>` : ''}
+        </button>
+      `).join('')}
+    </div>`;
+  }
+
+  function renderRegistro(){
+    const d = state.draft;
+    const existed = !!d.id;
+    return `
+    <form onsubmit="return App.saveDraft(event)" class="space-y-5">
+      <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp">
+        <label class="text-xs font-semibold text-muted uppercase tracking-wide">Data</label>
+        <input type="date" value="${d.date}" max="${todayStr()}" onchange="App.setDraftDate(this.value)"
+          class="mt-1.5 w-full border border-primary/15 rounded-xl px-4 py-3 bg-white focus:outline-none focus:ring-2 focus:ring-primary/40">
+        ${existed ? `<p class="text-[11px] text-transicao mt-2">Já existe um registro nesta data — você está editando.</p>` : ''}
+      </div>
+
+      <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp">
+        <p class="text-xs font-semibold text-muted uppercase tracking-wide mb-2.5">Sensação vulvar</p>
+        ${cardSelect(SENSACAO_OPTIONS,'sensacao', d.sensacao, 2)}
+      </div>
+
+      <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp">
+        <p class="text-xs font-semibold text-muted uppercase tracking-wide mb-2.5">Aspecto do muco</p>
+        ${cardSelect(MUCUS_OPTIONS,'muco', d.muco, 1)}
+      </div>
+
+      <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp">
+        <p class="text-xs font-semibold text-muted uppercase tracking-wide mb-2.5">Sangramento</p>
+        ${cardSelect(SANGRAMENTO_OPTIONS,'sangramento', d.sangramento, 3)}
+      </div>
+
+      <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp">
+        <p class="text-xs font-semibold text-muted uppercase tracking-wide mb-2.5">Fatores de confusão (opcional)</p>
+        <div class="flex flex-wrap gap-2">
+          ${FATORES_OPTIONS.map(o=>`
+            <button type="button" onclick="App.toggleFator('${o.id}')"
+              class="tap text-xs px-3 py-1.5 rounded-full border ${d.fatores.includes(o.id) ? 'bg-primary text-white border-primary' : 'border-primary/15 text-ink'}">
+              ${o.label}
+            </button>`).join('')}
+        </div>
+      </div>
+
+      <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp">
+        <p class="text-xs font-semibold text-muted uppercase tracking-wide mb-2.5">Ajustes manuais (opcional)</p>
+        <div class="space-y-3">
+          <label class="flex items-start gap-2.5">
+            <input type="checkbox" ${d.manualPeak?'checked':''} onchange="App.toggleManualPeak()" class="mt-0.5 accent-[#4A2545]">
+            <span class="text-xs">
+              <span class="block font-semibold">Marcar este dia como Ápice</span>
+              <span class="block text-muted mt-0.5">Sobrescreve a detecção automática — use com orientação da sua instrutora.</span>
+            </span>
+          </label>
+          ${state.currentUser && state.currentUser.reproductivePhase && state.currentUser.reproductivePhase!=='normal' ? `
+          <label class="flex items-start gap-2.5">
+            <input type="checkbox" ${d.personalBIP?'checked':''} onchange="App.togglePersonalBIP()" class="mt-0.5 accent-[#4A2545]">
+            <span class="text-xs">
+              <span class="block font-semibold">Este dia segue meu Padrão Básico Pessoal</span>
+              <span class="block text-muted mt-0.5">Para fases especiais (amamentação, perimenopausa) — conforme identificado com sua instrutora.</span>
+            </span>
+          </label>` : ''}
+        </div>
+      </div>
+
+      <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp">
+        <label class="text-xs font-semibold text-muted uppercase tracking-wide">Notas (opcional)</label>
+        <textarea onchange="App.setDraft('notas', this.value)" rows="3" placeholder="Alguma observação adicional sobre hoje..."
+          class="mt-1.5 w-full border border-primary/15 rounded-xl px-4 py-3 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">${esc(d.notas)}</textarea>
+      </div>
+
+      <button type="submit" class="tap w-full bg-primary text-white font-semibold py-3.5 rounded-xl shadow-soft">Salvar registro</button>
+      <p class="text-[11px] text-muted text-center leading-relaxed pb-2">${icon('shield','w-3 h-3 inline -mt-0.5')} Este registro é educativo. Para decisões de espaçamento gestacional, siga a orientação de uma instrutora certificada em MOB.</p>
+    </form>`;
+  }
+
+  /* ---------- GRÁFICO / HISTÓRICO ---------- */
+  function renderGrafico(){
+    const u = state.currentUser;
+    const records = state.records || [];
+    const analysis = computeAnalysis(records).slice().reverse(); // mais recente primeiro
+
+    if(u.plan!=='premium'){
+      const last7 = analysis.slice(0,7);
+      return `
+      <div class="space-y-5">
+        <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp">
+          <p class="text-xs font-semibold text-muted uppercase tracking-wide mb-3">Últimos 7 dias (prévia gratuita)</p>
+          <div class="space-y-2">
+            ${last7.map(e=>`
+              <div class="flex items-center gap-3 py-1.5">
+                <span class="w-2.5 h-2.5 rounded-full ${colorClasses[e.color].dot} shrink-0"></span>
+                <span class="font-mono text-xs text-muted w-12">${fmtBR(e.rec.date)}</span>
+                <span class="text-xs flex-1">${e.label}</span>
+              </div>`).join('')}
+          </div>
+        </div>
+
+        <div class="bg-gradient-to-br from-primary to-primary-dark text-white rounded-2xl p-5 shadow-soft anim-fadeUp">
+          <div class="flex items-center gap-2 mb-2">${icon('lock','w-4 h-4')}<span class="text-xs font-semibold uppercase tracking-wide text-white/80">Plano Premium</span></div>
+          <h3 class="font-display text-xl mb-3">Desbloqueie o Gráfico Billings completo</h3>
+          <ul class="space-y-2 mb-4">
+            ${PREMIUM_FEATURES.map(f=>`<li class="flex items-start gap-2 text-sm text-white/90">${icon('check','w-4 h-4 mt-0.5 shrink-0 text-white')}<span>${f}</span></li>`).join('')}
+          </ul>
+          <button onclick="App.openPaywall('grafico')" class="tap w-full bg-white text-primary font-semibold py-3 rounded-xl">Ver plano Pro</button>
+        </div>
+      </div>`;
+    }
+
+    // PREMIUM
+    const today = analysis.find(e=>e.rec.date===todayStr());
+    const msg = fertilityMessage(today);
+    const stats = computeCycleStats(records);
+    const view = state.graficoView || 'lista';
+
+    return `
+    <div class="space-y-5">
+      <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp">
+        <div class="flex items-center justify-between mb-1">
+          <p class="text-xs font-semibold text-muted uppercase tracking-wide">Algoritmo de probabilidade</p>
+          <span class="text-[10px] bg-primary-soft text-primary px-2 py-1 rounded-full font-semibold">★ Premium</span>
+        </div>
+        <p class="font-display text-lg ${colorClasses[msg.color].text}">${msg.title}</p>
+        <p class="text-xs text-muted mt-1">${msg.desc}</p>
+      </div>
+
+      ${stats && stats.atypical ? `
+      <div class="flex items-start gap-2.5 bg-transicao-bg text-transicao rounded-2xl p-3.5 anim-fadeUp">
+        ${icon('alert','w-4 h-4 mt-0.5 shrink-0')}
+        <p class="text-[11px] leading-relaxed">Você está no dia ${stats.openCycleDay} do ciclo atual sem um Ápice identificado — isso foge do padrão comum. Considere conversar com sua instrutora ou profissional de saúde.</p>
+      </div>` : ''}
+
+      ${stats && stats.completedCycles>0 ? `
+      <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp">
+        <p class="text-xs font-semibold text-muted uppercase tracking-wide mb-3">Estatísticas (${stats.completedCycles} ciclo${stats.completedCycles>1?'s':''} completo${stats.completedCycles>1?'s':''})</p>
+        <div class="grid grid-cols-3 gap-2 text-center">
+          <div class="bg-primary-soft/50 rounded-xl py-3">
+            <p class="font-display text-xl text-primary">${stats.avgCycleLength ?? '—'}</p>
+            <p class="text-[10px] text-muted mt-0.5">dias/ciclo</p>
+          </div>
+          <div class="bg-primary-soft/50 rounded-xl py-3">
+            <p class="font-display text-xl text-primary">${stats.avgPeakDay ?? '—'}</p>
+            <p class="text-[10px] text-muted mt-0.5">dia do Ápice</p>
+          </div>
+          <div class="bg-primary-soft/50 rounded-xl py-3">
+            <p class="font-display text-xl text-primary">${stats.avgLutealLength ?? '—'}</p>
+            <p class="text-[10px] text-muted mt-0.5">fase lútea</p>
+          </div>
+        </div>
+        <p class="text-[10px] text-muted mt-3">Médias calculadas sobre os ciclos já concluídos (excluindo o atual).</p>
+      </div>` : ''}
+
+      <button onclick="App.exportReport()" class="tap w-full bg-white border border-primary/15 rounded-2xl p-4 shadow-soft flex items-center justify-between anim-fadeUp">
+        <span class="flex items-center gap-2 text-sm font-semibold text-primary">${icon('download','w-4 h-4')} Exportar relatório em PDF</span>
+        ${icon('chevron','w-4 h-4 text-muted')}
+      </button>
+
+      <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp">
+        <div class="flex items-center justify-between mb-3">
+          <p class="text-xs font-semibold text-muted uppercase tracking-wide">Histórico · simbologia clássica</p>
+          <div class="flex bg-primary-soft rounded-full p-0.5">
+            <button onclick="App.setGraficoView('lista')" class="tap text-[10px] font-semibold px-2.5 py-1 rounded-full ${view==='lista'?'bg-primary text-white':'text-primary'}">Lista</button>
+            <button onclick="App.setGraficoView('calendario')" class="tap text-[10px] font-semibold px-2.5 py-1 rounded-full ${view==='calendario'?'bg-primary text-white':'text-primary'}">Calendário</button>
+          </div>
+        </div>
+        ${view==='lista' ? `
+        <div class="space-y-1.5 max-h-[420px] overflow-y-auto pr-1">
+          ${analysis.map(e=>`
+            <button onclick="App.editDate('${e.rec.date}')" class="tap w-full flex items-center gap-3 py-2 px-2 rounded-xl hover:bg-primary-soft/50 text-left">
+              <span class="w-9 h-9 rounded-full ${colorClasses[e.color].dot} text-white flex items-center justify-center text-[10px] font-bold font-mono shrink-0 ${e.isPeak ? 'ring-2 ring-offset-2 ring-primary' : ''}">${e.code}</span>
+              <span class="flex-1 min-w-0">
+                <span class="block text-xs font-semibold truncate">${e.label} ${e.isPeak ? '🌸' : ''}</span>
+                <span class="block text-[10px] text-muted font-mono">Dia ${e.cycleDay} do ciclo · ${fmtBRFull(e.rec.date)}</span>
+              </span>
+            </button>`).join('')}
+          ${analysis.length===0 ? `<p class="text-xs text-muted py-4 text-center">Nenhum registro ainda.</p>` : ''}
+        </div>
+        ` : renderCalendarView(analysis)}
+      </div>
+
+      <div class="bg-white rounded-2xl shadow-soft overflow-hidden anim-fadeUp">
+        <div class="p-4">
+          <p class="text-xs font-semibold text-muted uppercase tracking-wide mb-2 flex items-center gap-2">${icon('book','w-4 h-4')} Regras de espaçamento gestacional</p>
+          <div class="space-y-3 text-xs text-muted leading-relaxed">
+            <p><span class="font-semibold text-ink">Regra Infértil Básica:</span> nos dias secos consecutivos que caracterizam o padrão infértil básico, a probabilidade de fertilidade é considerada baixa.</p>
+            <p><span class="font-semibold text-ink">Regra do Ápice:</span> o Ápice é identificado automaticamente como o último dia de muco elástico/lubrificativo antes do declínio na qualidade do muco.</p>
+            <p><span class="font-semibold text-ink">Regra dos 3 dias:</span> os três dias seguintes ao Ápice são considerados de alta fertilidade, independentemente da observação desses dias.</p>
+            <p class="italic">Para espaçamento gestacional com segurança, essas regras devem ser aplicadas em conjunto com orientação de uma instrutora certificada.</p>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  /* ---------- CALENDÁRIO VISUAL ---------- */
+  function renderCalendarView(analysisDesc){
+    const analysis = analysisDesc.slice().reverse(); // volta pra ordem asc
+    if(analysis.length===0) return `<p class="text-xs text-muted py-4 text-center">Nenhum registro ainda.</p>`;
+
+    const byDate = {};
+    analysis.forEach(e=>{ byDate[e.rec.date] = e; });
+
+    const months = [];
+    const seen = new Set();
+    analysis.forEach(e=>{
+      const key = e.rec.date.slice(0,7); // YYYY-MM
+      if(!seen.has(key)){ seen.add(key); months.push(key); }
+    });
+
+    const weekDays = ['D','S','T','Q','Q','S','S'];
+
+    return months.slice().reverse().map(monthKey=>{
+      const [year, month] = monthKey.split('-').map(Number);
+      const firstOfMonth = new Date(year, month-1, 1);
+      const daysInMonth = new Date(year, month, 0).getDate();
+      const startOffset = firstOfMonth.getDay(); // 0=domingo
+      const monthLabel = firstOfMonth.toLocaleDateString('pt-BR', { month:'long', year:'numeric' });
+
+      let cells = '';
+      for(let i=0;i<startOffset;i++){ cells += `<div></div>`; }
+      for(let d=1; d<=daysInMonth; d++){
+        const dateStr = `${year}-${pad(month)}-${pad(d)}`;
+        const e = byDate[dateStr];
+        if(e){
+          cells += `<button onclick="App.editDate('${dateStr}')" class="tap aspect-square rounded-lg ${colorClasses[e.color].dot} text-white text-[9px] font-bold font-mono flex items-center justify-center ${e.isPeak?'ring-2 ring-offset-1 ring-primary':''}">${d}</button>`;
+        } else {
+          cells += `<div class="aspect-square rounded-lg bg-primary-soft/40 text-muted text-[9px] font-mono flex items-center justify-center">${d}</div>`;
+        }
+      }
+
+      return `
+      <div class="mb-4 last:mb-0">
+        <p class="text-xs font-semibold text-ink capitalize mb-2">${monthLabel}</p>
+        <div class="grid grid-cols-7 gap-1 mb-1">
+          ${weekDays.map(w=>`<div class="text-center text-[9px] text-muted font-semibold">${w}</div>`).join('')}
+        </div>
+        <div class="grid grid-cols-7 gap-1">${cells}</div>
+      </div>`;
+    }).join('');
+  }
+
+  /* ---------- PERFIL ---------- */
+  function renderPerfil(){
+    const u = state.currentUser;
+    const isPremium = u.plan==='premium';
+    const isGuest = !!u.isGuest;
+    const notifOn = !!u.fcmToken;
+    const initials = u.name.split(' ').map(p=>p[0]).slice(0,2).join('').toUpperCase();
+
+    return `
+    <div class="space-y-5">
+      <div class="bg-white rounded-2xl p-5 shadow-soft flex items-center gap-4 anim-fadeUp">
+        <div class="w-14 h-14 rounded-full bg-primary text-white flex items-center justify-center font-display text-xl shrink-0">${initials}</div>
+        <div class="min-w-0">
+          <p class="font-semibold truncate">${esc(u.name)}</p>
+          <p class="text-xs text-muted truncate">${esc(u.email) || 'Conta demonstração'}</p>
+          <span class="inline-block mt-1.5 text-[10px] font-semibold px-2.5 py-1 rounded-full ${isPremium ? 'bg-primary text-white' : 'bg-primary-soft text-primary'}">${isPremium ? '★ Plano Premium' : 'Plano Gratuito'}</span>
+        </div>
+      </div>
+
+      ${isGuest ? `
+      <div class="flex items-start gap-2.5 bg-transicao-bg text-transicao rounded-2xl p-3.5 anim-fadeUp">
+        ${icon('alert','w-4 h-4 mt-0.5 shrink-0')}
+        <p class="text-[11px] leading-relaxed">Conta demonstração: assinatura real e notificações exigem uma conta com e-mail e senha.</p>
+      </div>` : ''}
+
+      ${!isPremium ? `
+      <button onclick="App.openPaywall('perfil')" class="tap w-full bg-gradient-to-br from-primary to-primary-dark text-white rounded-2xl p-4 shadow-soft flex items-center justify-between anim-fadeUp">
+        <span class="text-left">
+          <span class="block font-semibold text-sm">Assinar Plano Pro</span>
+          <span class="block text-white/70 text-xs mt-0.5">R$ 19,90/mês</span>
+        </span>
+        ${icon('sparkle','w-5 h-5')}
+      </button>` : `
+      <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp space-y-3">
+        <div class="flex items-center gap-2 text-infertil">
+          ${icon('check','w-4 h-4')}<span class="text-xs font-semibold">Sua assinatura Pro está ativa</span>
+        </div>
+        <button onclick="App.manageBilling()" ${state.portalBusy?'disabled':''} class="tap w-full border border-primary/15 text-primary font-semibold py-2.5 rounded-xl flex items-center justify-center gap-2 text-sm disabled:opacity-60">
+          ${icon('card','w-4 h-4')} ${state.portalBusy ? 'Abrindo…' : 'Gerenciar assinatura / cancelar'}
+        </button>
+      </div>`}
+
+      <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp">
+        <div class="flex items-center justify-between">
+          <div>
+            <p class="text-sm font-semibold">Modo de teste</p>
+            <p class="text-[11px] text-muted mt-0.5 max-w-[220px]">Alterne rapidamente entre Gratuito e Premium para testar as duas visões.</p>
+          </div>
+          <button onclick="App.togglePlanTest()" class="tap shrink-0 w-14 h-8 rounded-full relative transition ${isPremium ? 'bg-primary' : 'bg-primary/20'}">
+            <span class="absolute top-1 ${isPremium ? 'right-1' : 'left-1'} w-6 h-6 rounded-full bg-white shadow transition-all"></span>
+          </button>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp">
+        <div class="flex items-center justify-between gap-3">
+          <div class="flex items-start gap-2.5">
+            ${icon('bell','w-4 h-4 mt-0.5 text-primary shrink-0')}
+            <div>
+              <p class="text-sm font-semibold">Lembrete diário</p>
+              <p class="text-[11px] text-muted mt-0.5 max-w-[200px]">Um aviso às 20h se você ainda não registrou o dia.</p>
+            </div>
+          </div>
+          <button onclick="App.toggleNotifications()" ${(state.notifBusy||isGuest)?'disabled':''} class="tap shrink-0 w-14 h-8 rounded-full relative transition disabled:opacity-40 ${notifOn ? 'bg-primary' : 'bg-primary/20'}">
+            <span class="absolute top-1 ${notifOn ? 'right-1' : 'left-1'} w-6 h-6 rounded-full bg-white shadow transition-all"></span>
+          </button>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp">
+        <p class="text-xs font-semibold text-muted uppercase tracking-wide mb-2.5">Fase reprodutiva</p>
+        <div class="space-y-2">
+          ${REPRODUCTIVE_PHASES.map(p=>`
+            <button onclick="App.setReproductivePhase('${p.id}')" class="tap w-full text-left flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl border ${((u.reproductivePhase||'normal')===p.id) ? 'border-primary bg-primary-soft' : 'border-primary/10'}">
+              <span>
+                <span class="block text-xs font-semibold">${p.label}</span>
+                <span class="block text-[10px] text-muted mt-0.5">${p.hint}</span>
+              </span>
+              ${((u.reproductivePhase||'normal')===p.id) ? icon('check','w-4 h-4 text-primary shrink-0') : ''}
+            </button>`).join('')}
+        </div>
+        <p class="text-[10px] text-muted mt-3 leading-relaxed">Em fases especiais, o app permite marcar seu Padrão Básico Pessoal manualmente — sempre siga a orientação individual da sua instrutora certificada.</p>
+      </div>
+
+      <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp">
+        <p class="text-xs font-semibold text-muted uppercase tracking-wide mb-1">Compartilhar com instrutora ou parceiro</p>
+        <p class="text-[11px] text-muted mb-3 leading-relaxed">Gera um link somente-leitura do seu gráfico, válido por 30 dias. Revogável a qualquer momento.</p>
+        ${isGuest ? `
+        <p class="text-xs text-transicao">Crie uma conta com e-mail e senha para compartilhar seu gráfico.</p>
+        ` : `
+        <button onclick="App.createShareLink()" ${state.shareBusy?'disabled':''} class="tap w-full bg-primary text-white font-semibold py-2.5 rounded-xl flex items-center justify-center gap-2 text-sm disabled:opacity-60 mb-3">
+          ${icon('sparkle','w-4 h-4')} ${state.shareBusy ? 'Gerando…' : 'Gerar novo link'}
+        </button>
+        ${state.sharesLoading ? `<p class="text-xs text-muted">Carregando links ativos…</p>` : ''}
+        ${(state.shares && state.shares.length) ? `
+        <div class="space-y-2">
+          ${state.shares.map(s=>`
+            <div class="flex items-center justify-between gap-2 bg-primary-soft/60 rounded-xl px-3 py-2.5">
+              <span class="text-[11px] text-primary font-mono truncate">…/share.html?id=${s.id.slice(0,8)}…</span>
+              <button onclick="App.revokeShare('${s.id}')" class="tap text-[11px] font-semibold text-fertil shrink-0">Revogar</button>
+            </div>`).join('')}
+        </div>` : (state.sharesLoading ? '' : `<p class="text-[11px] text-muted">Nenhum link ativo no momento.</p>`)}
+        `}
+      </div>
+
+      <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp">
+        <p class="text-xs font-semibold text-muted uppercase tracking-wide mb-3">Recursos do plano</p>
+        <div class="space-y-2.5">
+          ${PREMIUM_FEATURES.map(f=>`
+            <div class="flex items-start gap-2.5 text-xs">
+              ${isPremium ? icon('check','w-4 h-4 mt-0.5 shrink-0 text-infertil') : icon('lock','w-4 h-4 mt-0.5 shrink-0 text-muted')}
+              <span class="${isPremium ? 'text-ink' : 'text-muted'}">${f}</span>
+            </div>`).join('')}
+        </div>
+      </div>
+
+      <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp">
+        <p class="text-xs font-semibold text-muted uppercase tracking-wide mb-3">Seus dados (LGPD)</p>
+        <div class="space-y-2">
+          <button onclick="App.exportMyData()" class="tap w-full flex items-center gap-2.5 text-sm font-semibold text-primary py-2">
+            ${icon('download','w-4 h-4')} Exportar meus dados
+          </button>
+          <a href="/privacy.html" target="_blank" class="w-full flex items-center gap-2.5 text-sm font-semibold text-primary py-2">${icon('book','w-4 h-4')} Política de Privacidade</a>
+        </div>
+      </div>
+
+      <button onclick="App.logout()" class="tap w-full bg-white border border-primary/15 text-primary font-semibold py-3.5 rounded-xl shadow-soft flex items-center justify-center gap-2 anim-fadeUp">
+        ${icon('logout','w-4 h-4')} Sair da conta
+      </button>
+
+      <button onclick="App.openDeleteConfirm()" class="tap w-full bg-white border border-fertil/20 text-fertil font-semibold py-3.5 rounded-xl shadow-soft flex items-center justify-center gap-2 anim-fadeUp">
+        ${icon('trash','w-4 h-4')} Excluir minha conta
+      </button>
+      <p class="text-[10px] text-muted text-center pb-2">Conta protegida por Firebase Authentication. Seus registros ficam isolados na nuvem e são visíveis apenas para você.</p>
+    </div>`;
+  }
+
+  /* ---------- PAYWALL MODAL ---------- */
+  function renderPaywall(){
+    const featureCopy = {
+      grafico: { title:'Gráfico Billings completo', desc:'Desbloqueie a simbologia clássica, identificação automática do Ápice e a Regra dos 3 dias.' },
+      pdf: { title:'Exportação em PDF', desc:'Gere relatórios para compartilhar com sua instrutora certificada ou médico(a).' },
+      perfil: { title:'Plano Pro', desc:'Tenha acesso completo a todos os recursos avançados do método.' },
+      geral: { title:'Recurso Premium', desc:'Este recurso faz parte do Plano Pro.' },
+    };
+    const c = featureCopy[state.paywall] || featureCopy.geral;
+    const isGuest = state.currentUser && state.currentUser.isGuest;
+    return `
+    <div class="absolute inset-0 z-40 flex items-end">
+      <div class="absolute inset-0 bg-ink/50 anim-fadeIn" onclick="App.closePaywall()"></div>
+      <div class="relative w-full bg-white rounded-t-[2rem] p-6 pb-8 anim-sheet safe-bottom">
+        <div class="w-10 h-1.5 bg-primary/15 rounded-full mx-auto mb-5"></div>
+        <div class="w-12 h-12 rounded-2xl bg-primary-soft flex items-center justify-center mb-4">${icon('lock','w-6 h-6 text-primary')}</div>
+        <h3 class="font-display text-2xl mb-1">${c.title}</h3>
+        <p class="text-sm text-muted mb-5">${c.desc}</p>
+        <ul class="space-y-2.5 mb-6">
+          ${PREMIUM_FEATURES.map(f=>`<li class="flex items-start gap-2.5 text-sm">${icon('check','w-4 h-4 mt-0.5 shrink-0 text-infertil')}<span>${f}</span></li>`).join('')}
+        </ul>
+        ${isGuest ? `
+        <p class="text-xs text-transicao bg-transicao-bg rounded-xl p-3 mb-3">Crie uma conta com e-mail e senha (aba Perfil ainda não tem essa opção pronta? use Cadastrar na tela de login) para assinar o plano Pro de verdade.</p>
+        <button onclick="App.closePaywall()" class="tap w-full text-muted font-medium py-2 text-sm">Entendi</button>
+        ` : `
+        <button onclick="App.subscribe()" ${state.checkoutBusy?'disabled':''} class="tap w-full bg-primary text-white font-semibold py-3.5 rounded-xl shadow-soft mb-2.5 disabled:opacity-60">${state.checkoutBusy ? 'Abrindo checkout…' : 'Assinar Plano Pro — R$ 19,90/mês'}</button>
+        <button onclick="App.closePaywall()" class="tap w-full text-muted font-medium py-2 text-sm">Continuar no plano Grátis</button>
+        <p class="text-[10px] text-muted text-center mt-3">Pagamento processado com segurança pelo Stripe. Cancele quando quiser em Perfil → Gerenciar assinatura.</p>
+        `}
+      </div>
+    </div>`;
+  }
+
+  /* ---------- CONFIRMAÇÃO DE EXCLUSÃO DE CONTA ---------- */
+  function renderDeleteConfirm(){
+    return `
+    <div class="absolute inset-0 z-50 flex items-end">
+      <div class="absolute inset-0 bg-ink/50 anim-fadeIn" onclick="${state.deleteBusy?'':'App.closeDeleteConfirm()'}"></div>
+      <div class="relative w-full bg-white rounded-t-[2rem] p-6 pb-8 anim-sheet safe-bottom">
+        <div class="w-10 h-1.5 bg-primary/15 rounded-full mx-auto mb-5"></div>
+        <div class="w-12 h-12 rounded-2xl bg-fertil-bg flex items-center justify-center mb-4">${icon('trash','w-6 h-6 text-fertil')}</div>
+        <h3 class="font-display text-2xl mb-1">Excluir sua conta?</h3>
+        <p class="text-sm text-muted mb-6 leading-relaxed">Isso apaga permanentemente seu perfil e todos os registros do ciclo. Essa ação não pode ser desfeita. Considere exportar seus dados antes.</p>
+        <button onclick="App.confirmDeleteAccount()" ${state.deleteBusy?'disabled':''} class="tap w-full bg-fertil text-white font-semibold py-3.5 rounded-xl shadow-soft mb-2.5 disabled:opacity-60">${state.deleteBusy?'Excluindo…':'Sim, excluir permanentemente'}</button>
+        <button onclick="App.closeDeleteConfirm()" ${state.deleteBusy?'disabled':''} class="tap w-full text-muted font-medium py-2 text-sm disabled:opacity-60">Cancelar</button>
+      </div>
+    </div>`;
+  }
+
+  /* ---------- ONBOARDING ---------- */
+  function renderOnboarding(){
+    const slides = [
+      {
+        icon: 'drop',
+        title: 'Bem-vinda ao Ciclo Consciente',
+        desc: 'Em menos de 1 minuto, veja como registrar sua observação diária pelo Método Billings.',
+      },
+      {
+        icon: 'edit',
+        title: 'Sensação vulvar e muco',
+        desc: 'Todo dia, observe como você se sente (seca, úmida, molhada, lubrificativa) e o aspecto do muco (nenhum, pegajoso, cremoso, elástico). Isso é a base de tudo.',
+      },
+      {
+        icon: 'chart',
+        title: 'As três cores',
+        desc: 'Verde = padrão infértil básico. Amarelo = transição, atenção redobrada. Vermelho = fértil, inclui o Ápice e a Regra dos 3 dias.',
+      },
+      {
+        icon: 'shield',
+        title: 'Você não está sozinha',
+        desc: 'Este app é educativo. Para decisões de espaçamento gestacional, siga sempre a orientação de uma instrutora certificada em MOB ou profissional de saúde.',
+      },
+    ];
+    const step = state.onboardingStep;
+    const s = slides[step];
+    return `
+    <div class="absolute inset-0 z-50 flex items-end">
+      <div class="absolute inset-0 bg-ink/60 anim-fadeIn"></div>
+      <div class="relative w-full bg-white rounded-t-[2rem] p-6 pb-8 anim-sheet safe-bottom">
+        <div class="flex justify-center gap-1.5 mb-5">
+          ${slides.map((_,i)=>`<span class="h-1.5 rounded-full transition-all ${i===step?'w-6 bg-primary':'w-1.5 bg-primary/20'}"></span>`).join('')}
+        </div>
+        <div class="w-14 h-14 rounded-2xl bg-primary-soft flex items-center justify-center mb-4 mx-auto">${icon(s.icon,'w-7 h-7 text-primary')}</div>
+        <h3 class="font-display text-xl mb-2 text-center">${s.title}</h3>
+        <p class="text-sm text-muted mb-7 text-center leading-relaxed">${s.desc}</p>
+        <div class="flex gap-2.5">
+          ${step>0 ? `<button onclick="App.prevOnboardingStep()" class="tap shrink-0 border border-primary/15 text-primary font-semibold px-4 rounded-xl text-sm">Voltar</button>` : `<button onclick="App.finishOnboarding()" class="tap shrink-0 text-muted font-medium px-4 text-sm">Pular</button>`}
+          <button onclick="App.nextOnboardingStep()" class="tap flex-1 bg-primary text-white font-semibold py-3 rounded-xl text-sm">${step<3?'Próximo':'Começar'}</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  /* ---------- TOAST ---------- */
+  function renderToast(){
+    const t = state.toast;
+    const colors = { success:'bg-infertil', error:'bg-fertil', info:'bg-primary' };
+    return `
+    <div class="absolute top-4 left-1/2 -translate-x-1/2 z-50 anim-fadeUp">
+      <div class="${colors[t.type]} text-white text-xs font-semibold px-4 py-2.5 rounded-full shadow-soft whitespace-nowrap">${esc(t.msg)}</div>
+    </div>`;
+  }
+
+  /* ---------------------------------------------------------------------
+     PAINEL DA INSTRUTORA
+  --------------------------------------------------------------------- */
+  function renderInstructorShell(){
+    const u = state.currentUser;
+    const initials = u.name.split(' ').map(p=>p[0]).slice(0,2).join('').toUpperCase();
+
+    return `
+    <div class="flex-1 flex flex-col min-h-screen anim-fadeIn">
+      <header class="bg-primary text-white px-6 pt-7 pb-5 rounded-b-[1.75rem] shadow-soft relative overflow-hidden shrink-0">
+        <svg class="absolute -right-10 -top-10 opacity-15" width="150" height="150" viewBox="0 0 150 150"><circle cx="75" cy="75" r="70" fill="none" stroke="white" stroke-width="1.5"/></svg>
+        <div class="relative flex items-center justify-between">
+          <div>
+            <p class="text-white/60 text-xs font-medium tracking-wide uppercase">Painel da instrutora</p>
+            <h1 class="font-display text-2xl mt-0.5">Olá, ${esc(u.name.split(' ')[0])}</h1>
+          </div>
+          <span class="text-[11px] font-semibold px-3 py-1.5 rounded-full bg-white/15 text-white">★ Instrutora</span>
+        </div>
+      </header>
+
+      <main id="scrollArea" class="flex-1 overflow-y-auto px-5 pt-5 pb-28">
+        ${!isOnline ? `
+        <div class="flex items-center gap-2.5 bg-primary-soft text-primary rounded-2xl p-3 mb-4 text-xs font-semibold anim-fadeUp">
+          ${icon('alert','w-4 h-4 shrink-0')} Sem conexão no momento.
+        </div>` : ''}
+        ${state.instructorTab==='alunas' ? renderInstructorAlunas() : renderInstructorPerfil(u, initials)}
+      </main>
+
+      <nav class="absolute bottom-0 left-0 right-0 bg-white shadow-nav safe-bottom border-t border-primary/5">
+        <div class="grid grid-cols-2">
+          <button class="tap flex flex-col items-center gap-1 py-3" onclick="App.setInstructorTab('alunas')">
+            <span class="${state.instructorTab==='alunas' ? 'text-primary' : 'text-muted'}">${icon('user','w-5 h-5')}</span>
+            <span class="text-[10px] font-semibold ${state.instructorTab==='alunas' ? 'text-primary' : 'text-muted'}">Alunas</span>
+          </button>
+          <button class="tap flex flex-col items-center gap-1 py-3" onclick="App.setInstructorTab('perfil')">
+            <span class="${state.instructorTab==='perfil' ? 'text-primary' : 'text-muted'}">${icon('shield','w-5 h-5')}</span>
+            <span class="text-[10px] font-semibold ${state.instructorTab==='perfil' ? 'text-primary' : 'text-muted'}">Perfil</span>
+          </button>
+        </div>
+      </nav>
+
+      ${state.viewingStudent ? renderStudentChartModal() : ''}
+      ${state.deleteConfirmOpen ? renderDeleteConfirm() : ''}
+      ${state.toast ? renderToast() : ''}
+    </div>`;
+  }
+
+  function renderInstructorAlunas(){
+    return `
+    <div class="space-y-5">
+      <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp">
+        <p class="text-xs font-semibold text-muted uppercase tracking-wide mb-1">Vincular nova aluna</p>
+        <p class="text-[11px] text-muted mb-3 leading-relaxed">Peça para sua aluna gerar um link em Perfil → "Compartilhar com instrutora ou parceiro" e cole aqui o link ou o código.</p>
+        <form onsubmit="return App.addStudentByCode(event)" class="flex gap-2">
+          <input name="code" type="text" required placeholder="Cole o link ou código aqui" class="flex-1 border border-primary/15 rounded-xl px-3 py-2.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-primary/40">
+          <button type="submit" ${state.addStudentBusy?'disabled':''} class="tap shrink-0 bg-primary text-white font-semibold px-4 rounded-xl text-xs disabled:opacity-60">${state.addStudentBusy?'…':'Vincular'}</button>
+        </form>
+      </div>
+
+      <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp">
+        <p class="text-xs font-semibold text-muted uppercase tracking-wide mb-3">Suas alunas (${state.linkedStudents ? state.linkedStudents.length : 0})</p>
+        ${state.studentsLoading ? `<p class="text-xs text-muted">Carregando…</p>` : ''}
+        ${(state.linkedStudents && state.linkedStudents.length) ? `
+        <div class="space-y-2">
+          ${state.linkedStudents.map(s=>`
+            <div class="flex items-center gap-3 bg-primary-soft/50 rounded-xl px-3 py-2.5">
+              <div class="w-9 h-9 rounded-full bg-primary text-white flex items-center justify-center text-xs font-semibold shrink-0">${esc((s.studentName||'A')[0].toUpperCase())}</div>
+              <button onclick="App.openStudentChart('${s.id}')" class="tap flex-1 min-w-0 text-left">
+                <span class="block text-xs font-semibold truncate">${esc(s.studentName||'Aluna')}</span>
+                <span class="block text-[10px] text-primary font-semibold">Ver gráfico →</span>
+              </button>
+              <button onclick="App.removeStudent('${s.id}')" class="tap shrink-0 text-fertil">${icon('trash','w-4 h-4')}</button>
+            </div>`).join('')}
+        </div>` : (state.studentsLoading ? '' : `<p class="text-xs text-muted text-center py-6">Nenhuma aluna vinculada ainda.</p>`)}
+      </div>
+      <p class="text-[10px] text-muted text-center leading-relaxed pb-2">Os vínculos seguem a validade do link compartilhado pela aluna (30 dias). Se expirar, peça um novo link a ela.</p>
+    </div>`;
+  }
+
+  function renderInstructorPerfil(u, initials){
+    return `
+    <div class="space-y-5">
+      <div class="bg-white rounded-2xl p-5 shadow-soft flex items-center gap-4 anim-fadeUp">
+        <div class="w-14 h-14 rounded-full bg-primary text-white flex items-center justify-center font-display text-xl shrink-0">${initials}</div>
+        <div class="min-w-0">
+          <p class="font-semibold truncate">${esc(u.name)}</p>
+          <p class="text-xs text-muted truncate">${esc(u.email)}</p>
+          <span class="inline-block mt-1.5 text-[10px] font-semibold px-2.5 py-1 rounded-full bg-primary-soft text-primary">Conta de instrutora</span>
+        </div>
+      </div>
+      <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp">
+        <p class="text-xs font-semibold text-muted uppercase tracking-wide mb-3">Seus dados (LGPD)</p>
+        <a href="/privacy.html" target="_blank" class="w-full flex items-center gap-2.5 text-sm font-semibold text-primary py-2">${icon('book','w-4 h-4')} Política de Privacidade</a>
+      </div>
+      <button onclick="App.logout()" class="tap w-full bg-white border border-primary/15 text-primary font-semibold py-3.5 rounded-xl shadow-soft flex items-center justify-center gap-2 anim-fadeUp">
+        ${icon('logout','w-4 h-4')} Sair da conta
+      </button>
+      <button onclick="App.openDeleteConfirm()" class="tap w-full bg-white border border-fertil/20 text-fertil font-semibold py-3.5 rounded-xl shadow-soft flex items-center justify-center gap-2 anim-fadeUp">
+        ${icon('trash','w-4 h-4')} Excluir minha conta
+      </button>
+    </div>`;
+  }
+
+  function renderStudentChartModal(){
+    const s = state.viewingStudent;
+    return `
+    <div class="absolute inset-0 z-40 flex items-end">
+      <div class="absolute inset-0 bg-ink/50 anim-fadeIn" onclick="App.closeStudentChart()"></div>
+      <div class="relative w-full bg-white rounded-t-[2rem] p-6 pb-8 anim-sheet safe-bottom max-h-[85vh] overflow-y-auto">
+        <div class="w-10 h-1.5 bg-primary/15 rounded-full mx-auto mb-5"></div>
+        ${state.viewingStudentLoading ? `
+        <div class="flex flex-col items-center gap-3 py-10">
+          <div class="w-8 h-8 rounded-full border-2 border-primary/20 border-t-primary animate-spin"></div>
+          <p class="text-xs text-muted">Carregando gráfico…</p>
+        </div>` : s && s.analysis ? `
+        <h3 class="font-display text-xl mb-4">${esc(s.name)}</h3>
+        <div class="space-y-1.5">
+          ${s.analysis.map(e=>`
+            <div class="flex items-center gap-3 py-1.5">
+              <span class="w-8 h-8 rounded-full ${colorClasses[e.color].dot} text-white flex items-center justify-center text-[10px] font-bold font-mono shrink-0 ${e.isPeak?'ring-2 ring-offset-2 ring-primary':''}">${e.code}</span>
+              <span class="flex-1 min-w-0">
+                <span class="block text-xs font-semibold truncate">${e.label} ${e.isPeak?'🌸':''}</span>
+                <span class="block text-[10px] text-muted font-mono">Dia ${e.cycleDay} · ${fmtBRFull(e.rec.date)}</span>
+              </span>
+            </div>`).join('')}
+          ${s.analysis.length===0 ? `<p class="text-xs text-muted text-center py-6">Nenhum registro ainda.</p>` : ''}
+        </div>
+        ` : `<p class="text-xs text-muted text-center py-10">Não foi possível carregar este gráfico.</p>`}
+        <button onclick="App.closeStudentChart()" class="tap w-full text-muted font-medium py-2 text-sm mt-4">Fechar</button>
+      </div>
+    </div>`;
+  }
+
+  /* ---------------------------------------------------------------------
+     ROOT RENDER
+  --------------------------------------------------------------------- */
+  function render(){
+    const root = document.getElementById('app');
+    if(state.view==='setup') root.innerHTML = renderSetup();
+    else if(state.view==='loading') root.innerHTML = renderLoading();
+    else if(state.view==='auth') root.innerHTML = renderAuth();
+    else if(state.currentUser && state.currentUser.role==='instrutora') root.innerHTML = renderInstructorShell();
+    else root.innerHTML = renderShell();
+  }
+
+  document.addEventListener('DOMContentLoaded', () => App.init());
+})();
+</script>
+</body>
+</html>

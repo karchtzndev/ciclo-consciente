@@ -1,0 +1,15 @@
+{
+  "name": "ciclo-consciente-billings",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Acompanhamento do Método de Ovulação Billings (MOB) para espaçamento gestacional.",
+  "scripts": {
+    "dev": "vercel dev",
+    "build": "echo 'Front-end estático — nenhum build necessário'",
+    "start": "npx serve ."
+  },
+  "dependencies": {
+    "stripe": "^15.7.0",
+    "firebase-admin": "^12.1.0"
+  }
+}

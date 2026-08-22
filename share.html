@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Gráfico compartilhado · Ciclo Consciente</title>
+<meta name="robots" content="noindex, nofollow">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-check-compat.js"></script>
+<script>
+  tailwind.config = {
+    theme: { extend: {
+      colors: {
+        canvas: '#F7F5EE', ink: '#2B2230',
+        primary: { DEFAULT:'#4A2545', light:'#7A4F72', dark:'#301A2C', soft:'#EFE6ED' },
+        infertil: { DEFAULT:'#4C7A57', bg:'#E3EDE4' },
+        transicao: { DEFAULT:'#B8802A', bg:'#F7EBD3' },
+        fertil: { DEFAULT:'#B34632', bg:'#F5DFDA' },
+        muted: '#8B8089',
+      },
+      fontFamily: { display:['"Fraunces"','serif'], mono:['"IBM Plex Mono"','monospace'] },
+    }}
+  };
+  // Preencha com a URL da sua Cloud Function getSharedChart depois do deploy
+  // (ex.: https://us-central1-SEU_PROJETO.cloudfunctions.net/getSharedChart).
+  window.__FUNCTIONS_BASE_URL__ = "SUA_FUNCTIONS_URL_AQUI";
+  // Mesmos valores de index.html — necessários só para o App Check funcionar
+  // aqui (esta página não faz login, mas ainda assim prova que é o app real).
+  window.__FIREBASE_CONFIG__ = {
+    apiKey: "SUA_API_KEY_AQUI",
+    authDomain: "SEU_PROJETO.firebaseapp.com",
+    projectId: "SEU_PROJETO",
+    storageBucket: "SEU_PROJETO.appspot.com",
+    messagingSenderId: "000000000000",
+    appId: "1:000000000000:web:xxxxxxxxxxxxxxxxxxxxxx"
+  };
+  window.__APPCHECK_SITE_KEY__ = "SUA_CHAVE_RECAPTCHA_V3_AQUI";
+</script>
+<style>body{font-family:'Inter',sans-serif}</style>
+</head>
+<body class="bg-canvas text-ink min-h-screen">
+  <div class="max-w-[480px] mx-auto min-h-screen px-5 py-6">
+    <div class="flex items-center gap-2 mb-6">
+      <div class="w-8 h-8 rounded-xl bg-primary flex items-center justify-center text-white text-sm">🌸</div>
+      <span class="text-sm font-semibold text-primary">Ciclo Consciente</span>
+      <span class="ml-auto text-[10px] font-semibold px-2.5 py-1 rounded-full bg-primary-soft text-primary">Somente leitura</span>
+    </div>
+    <div id="app">
+      <div class="flex flex-col items-center gap-3 py-16">
+        <div class="w-8 h-8 rounded-full border-2 border-primary/20 border-t-primary animate-spin"></div>
+        <p class="text-xs text-muted">Carregando gráfico…</p>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function(){
+  "use strict";
+  const MUCUS_LABELS = { nenhum:'Nenhum', pegajoso:'Pegajoso, opaco', cremoso:'Cremoso', elastico:'Elástico, transparente' };
+  const SENSACAO_LABELS = { seca:'Seca', umida:'Úmida', molhada:'Molhada', lubrificativa:'Lubrificativa' };
+  const colorClasses = {
+    red:{dot:'bg-fertil'}, amber:{dot:'bg-transicao'}, green:{dot:'bg-infertil'}
+  };
+  const isFertileMucus = r => r.muco==='elastico' || r.sensacao==='lubrificativa';
+  const dayDiff = (a,b) => Math.round((new Date(b+'T00:00:00') - new Date(a+'T00:00:00')) / 86400000);
+  const fmtBRFull = (d) => { const [y,m,dd]=d.split('-'); return `${dd}/${m}/${y}`; };
+
+  const isAppCheckConfigured = !!(window.__APPCHECK_SITE_KEY__ && window.__APPCHECK_SITE_KEY__ !== 'SUA_CHAVE_RECAPTCHA_V3_AQUI');
+  if(window.__FIREBASE_CONFIG__ && window.__FIREBASE_CONFIG__.apiKey !== 'SUA_API_KEY_AQUI' && isAppCheckConfigured){
+    try{
+      firebase.initializeApp(window.__FIREBASE_CONFIG__);
+      firebase.appCheck().activate(new firebase.appCheck.ReCaptchaV3Provider(window.__APPCHECK_SITE_KEY__), true);
+    }catch(e){ /* segue sem App Check */ }
+  }
+  async function getAppCheckHeaders(){
+    if(!isAppCheckConfigured) return {};
+    try{ const { token } = await firebase.appCheck().getToken(false); return { 'X-Firebase-AppCheck': token }; }
+    catch(e){ return {}; }
+  }
+
+  function baseClassify(r){
+    if(r.personalBIP) return { color:'green', label:'Padrão Básico Pessoal', code:'B' };
+    if(r.sangramento === 'menstruacao') return { color:'red', label:'Menstruação', code:'M' };
+    if(r.sangramento === 'leve') return { color:'amber', label:'Spotting', code:'X' };
+    if(isFertileMucus(r)) return { color:'red', label:'Muco fértil', code:'F' };
+    if(r.muco==='cremoso' || r.sensacao==='molhada') return { color:'amber', label:'Transição', code:'C' };
+    if(r.muco==='pegajoso') return { color:'amber', label:'Pegajoso/opaco', code:'P' };
+    if((r.muco==='nenhum'||!r.muco) && r.sensacao==='seca') return { color:'green', label:'Padrão infértil básico', code:'S' };
+    return { color:'amber', label:'A observar', code:'?' };
+  }
+
+  function computeAnalysis(records){
+    const sorted = [...records].sort((a,b)=> a.date < b.date ? -1 : 1);
+    const cycles = []; let current = [];
+    sorted.forEach((r,idx)=>{
+      const prev = sorted[idx-1];
+      const startsNewCycle = r.sangramento==='menstruacao' && (!prev || prev.sangramento!=='menstruacao');
+      if(startsNewCycle && current.length){ cycles.push(current); current=[]; }
+      current.push(r);
+    });
+    if(current.length) cycles.push(current);
+
+    const analyzed = [];
+    cycles.forEach(cycle=>{
+      const base = cycle.map(r=>({ rec:r, ...baseClassify(r) }));
+      let peakIdx = -1;
+      let manualPeakIdx = base.findIndex(b=>b.rec.manualPeak);
+      if(manualPeakIdx > -1){ peakIdx = manualPeakIdx; }
+      else { base.forEach((b,i)=>{ if(isFertileMucus(b.rec)) peakIdx = i; }); }
+
+      const entries = base.map((b,i)=>({ ...b, isPeak:false, postPeakDay:0, cycleDay: dayDiff(cycle[0].date, b.rec.date)+1 }));
+      entries.forEach((entry,i)=>{
+        if(peakIdx>-1 && i===peakIdx){
+          entry.isPeak = true; entry.color='red'; entry.code='ÁPICE';
+          entry.label = manualPeakIdx>-1 ? 'Ápice (marcado manualmente)' : 'Ápice (pico de fertilidade)';
+        } else if(peakIdx>-1 && i>peakIdx && i<=peakIdx+3){
+          const day = i - peakIdx;
+          if(entry.rec.sangramento!=='menstruacao'){
+            entry.color='amber'; entry.label=`Regra dos 3 dias (+${day})`; entry.code=String(day);
+          }
+        }
+      });
+      entries.forEach((entry,i)=>{
+        const prev = entries[i-1];
+        if(prev && prev.rec.fatores && prev.rec.fatores.includes('relacao') && prev.color!=='green' && entry.color==='green'){
+          entry.color='amber'; entry.label='Dia de espera (observação após relação)'; entry.code='E';
+        }
+      });
+      entries.forEach(e=>analyzed.push(e));
+    });
+    return analyzed;
+  }
+
+  function render(html){ document.getElementById('app').innerHTML = html; }
+
+  async function init(){
+    const params = new URLSearchParams(window.location.search);
+    const shareId = params.get('id');
+    const base = window.__FUNCTIONS_BASE_URL__;
+
+    if(!shareId){
+      render(`<div class="bg-white rounded-2xl p-6 text-center shadow-sm"><p class="text-sm font-semibold">Link inválido</p><p class="text-xs text-muted mt-2">Nenhum identificador de compartilhamento foi encontrado na URL.</p></div>`);
+      return;
+    }
+    if(!base || base === 'SUA_FUNCTIONS_URL_AQUI'){
+      render(`<div class="bg-white rounded-2xl p-6 text-center shadow-sm"><p class="text-sm font-semibold">Configuração pendente</p><p class="text-xs text-muted mt-2">O dono deste app ainda não configurou a URL da função getSharedChart em share.html.</p></div>`);
+      return;
+    }
+
+    try{
+      const resp = await fetch(`${base}?shareId=${encodeURIComponent(shareId)}`, { headers: await getAppCheckHeaders() });
+      const data = await resp.json();
+      if(!resp.ok){
+        render(`<div class="bg-white rounded-2xl p-6 text-center shadow-sm"><p class="text-sm font-semibold">${data.error==='Este link de compartilhamento expirou.' ? 'Link expirado' : 'Não foi possível abrir'}</p><p class="text-xs text-muted mt-2">${data.error || 'Tente pedir um novo link.'}</p></div>`);
+        return;
+      }
+
+      const analysis = computeAnalysis(data.records || []).slice().reverse();
+      render(`
+        <div class="bg-white rounded-2xl p-4 shadow-sm mb-4">
+          <p class="text-xs text-muted">Gráfico de</p>
+          <h1 class="font-display text-xl">${data.ownerName}</h1>
+        </div>
+        <div class="bg-white rounded-2xl p-4 shadow-sm">
+          <div class="space-y-1.5">
+            ${analysis.map(e=>`
+              <div class="flex items-center gap-3 py-2">
+                <span class="w-9 h-9 rounded-full ${colorClasses[e.color].dot} text-white flex items-center justify-center text-[10px] font-bold font-mono shrink-0 ${e.isPeak?'ring-2 ring-offset-2 ring-primary':''}">${e.code}</span>
+                <span class="flex-1 min-w-0">
+                  <span class="block text-xs font-semibold truncate">${e.label} ${e.isPeak?'🌸':''}</span>
+                  <span class="block text-[10px] text-muted font-mono">Dia ${e.cycleDay} · ${fmtBRFull(e.rec.date)} · ${SENSACAO_LABELS[e.rec.sensacao]||'-'} / ${MUCUS_LABELS[e.rec.muco]||'-'}</span>
+                </span>
+              </div>`).join('')}
+            ${analysis.length===0 ? `<p class="text-xs text-muted text-center py-6">Nenhum registro ainda.</p>` : ''}
+          </div>
+        </div>
+        <p class="text-[10px] text-muted text-center mt-4 leading-relaxed">Visualização somente-leitura, gerada pela própria usuária. Este conteúdo é educativo e não substitui orientação profissional.</p>
+      `);
+    }catch(e){
+      render(`<div class="bg-white rounded-2xl p-6 text-center shadow-sm"><p class="text-sm font-semibold">Erro de conexão</p><p class="text-xs text-muted mt-2">Não foi possível carregar o gráfico agora. Tente novamente.</p></div>`);
+    }
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
