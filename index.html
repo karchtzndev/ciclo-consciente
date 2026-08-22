@@ -2271,6 +2271,10 @@
     if(state.view==='setup') root.innerHTML = renderSetup();
     else if(state.view==='loading') root.innerHTML = renderLoading();
     else if(state.view==='auth') root.innerHTML = renderAuth();
+    // Guarda contra corrida: login já confirmado (view='app') mas o documento
+    // do Firestore ainda não chegou (state.currentUser === null). Sem este
+    // guarda, renderShell() tenta ler propriedades de 'null' e quebra.
+    else if(state.view==='app' && !state.currentUser) root.innerHTML = renderLoading();
     else if(state.currentUser && state.currentUser.role==='instrutora') root.innerHTML = renderInstructorShell();
     else root.innerHTML = renderShell();
   }
