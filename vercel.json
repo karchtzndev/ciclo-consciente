@@ -1,6 +1,9 @@
 {
+  "public": true,
   "cleanUrls": true,
   "trailingSlash": false,
+  "buildCommand": "echo 'Front-end estático — nenhum build necessário'",
+  "outputDirectory": ".",
   "headers": [
     {
       "source": "/(.*)",

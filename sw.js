@@ -55,12 +55,12 @@ try {
   importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js');
 
   firebase.initializeApp({
-    apiKey: "SUA_API_KEY_AQUI",
-    authDomain: "SEU_PROJETO.firebaseapp.com",
-    projectId: "SEU_PROJETO",
-    storageBucket: "SEU_PROJETO.appspot.com",
-    messagingSenderId: "000000000000",
-    appId: "1:000000000000:web:xxxxxxxxxxxxxxxxxxxxxx"
+    apiKey: "AIzaSyBCEx6fsO-u20dQTCf5WYRv7BqGLf_uiQ8",
+    authDomain: "ciclo-consciente-ce313.firebaseapp.com",
+    projectId: "ciclo-consciente-ce313",
+    storageBucket: "ciclo-consciente-ce313.firebasestorage.app",
+    messagingSenderId: "748848950217",
+    appId: "1:748848950217:web:98abbbdf0e4a4cee941618"
   });
 
   const messaging = firebase.messaging();
