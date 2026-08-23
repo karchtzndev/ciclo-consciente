@@ -77,6 +77,19 @@
   });
 
   // 3. console.error e console.warn
+  // Ruído interno conhecido do Firestore: reconexão de stream ao voltar de
+  // segundo plano (comum no Safari/iOS) e aviso de depreciação de API.
+  // Continuam aparecendo no console do navegador normalmente — só não
+  // entram no relatório da aba Erros, pra não afogar problema real em
+  // aviso já confirmado inofensivo.
+  var KNOWN_NOISE = [
+    /WebChannelConnection RPC 'Listen' stream .* transport errored/,
+    /enableMultiTabIndexedDbPersistence\(\) will be deprecated/
+  ];
+  function isKnownNoise(msg){
+    return KNOWN_NOISE.some(function(re){ return re.test(msg); });
+  }
+
   ['error','warn'].forEach(function(lvl){
     var orig = console[lvl];
     console[lvl] = function(){
@@ -86,7 +99,8 @@
           if(typeof a === 'object'){ try{ return JSON.stringify(a); }catch(e){ return String(a); } }
           return String(a);
         });
-        push('console.' + lvl, parts.join(' '), '');
+        var joined = parts.join(' ');
+        if(!isKnownNoise(joined)) push('console.' + lvl, joined, '');
       }catch(e){}
       return orig.apply(console, arguments);
     };
@@ -1245,6 +1259,12 @@
 
     /* ---------- TOAST ---------- */
     toast(msg, type){
+      // Toasts de erro/aviso também entram no relatório da aba Erros — sem
+      // isso, um erro tratado com try/catch (ex: recurso não configurado)
+      // nunca aparecia no log, mesmo sendo um problema real pra usuária.
+      if((type==='error' || type==='warn') && window.__LOG_ERROR__){
+        window.__LOG_ERROR__('toast.' + type, msg, 'Aba ativa: ' + state.tab);
+      }
       state.toast = { msg, type: type||'info', id: uid() };
       render();
       const myId = state.toast.id;
@@ -1814,6 +1834,8 @@
       'recurso':       'bg-transicao-bg text-transicao',
       'console.error': 'bg-fertil-bg text-fertil',
       'console.warn':  'bg-transicao-bg text-transicao',
+      'toast.error':   'bg-fertil-bg text-fertil',
+      'toast.warn':    'bg-transicao-bg text-transicao',
       'app':           'bg-primary-soft text-primary',
     };
 
