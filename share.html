@@ -8,6 +8,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-check-compat.js"></script>
 <script>
   tailwind.config = {
@@ -23,8 +25,9 @@
       fontFamily: { display:['"Fraunces"','serif'], mono:['"IBM Plex Mono"','monospace'] },
     }}
   };
-  // Preencha com a URL da sua Cloud Function getSharedChart depois do deploy
-  // (ex.: https://us-central1-SEU_PROJETO.cloudfunctions.net/getSharedChart).
+  // Não é mais necessária: esta página lê o gráfico direto do Firestore,
+  // usando login anônimo + as Regras de Segurança. Mantida só por
+  // compatibilidade caso você venha a usar a Cloud Function no futuro.
   window.__FUNCTIONS_BASE_URL__ = "SUA_FUNCTIONS_URL_AQUI";
   // Mesmos valores de index.html — necessários só para o App Check funcionar
   // aqui (esta página não faz login, mas ainda assim prova que é o app real).
@@ -138,25 +141,53 @@
   async function init(){
     const params = new URLSearchParams(window.location.search);
     const shareId = params.get('id');
-    const base = window.__FUNCTIONS_BASE_URL__;
 
     if(!shareId){
       render(`<div class="bg-white rounded-2xl p-6 text-center shadow-sm"><p class="text-sm font-semibold">Link inválido</p><p class="text-xs text-muted mt-2">Nenhum identificador de compartilhamento foi encontrado na URL.</p></div>`);
       return;
     }
-    if(!base || base === 'SUA_FUNCTIONS_URL_AQUI'){
-      render(`<div class="bg-white rounded-2xl p-6 text-center shadow-sm"><p class="text-sm font-semibold">Configuração pendente</p><p class="text-xs text-muted mt-2">O dono deste app ainda não configurou a URL da função getSharedChart em share.html.</p></div>`);
-      return;
+
+    function erro(titulo, texto){
+      render(`<div class="bg-white rounded-2xl p-6 text-center shadow-sm"><p class="text-sm font-semibold">${titulo}</p><p class="text-xs text-muted mt-2">${texto}</p></div>`);
     }
 
     try{
-      const resp = await fetch(`${base}?shareId=${encodeURIComponent(shareId)}`, { headers: await getAppCheckHeaders() });
-      const data = await resp.json();
-      if(!resp.ok){
-        render(`<div class="bg-white rounded-2xl p-6 text-center shadow-sm"><p class="text-sm font-semibold">${data.error==='Este link de compartilhamento expirou.' ? 'Link expirado' : 'Não foi possível abrir'}</p><p class="text-xs text-muted mt-2">${data.error || 'Tente pedir um novo link.'}</p></div>`);
+      // Login anônimo: o parceiro não precisa criar conta. As Regras do
+      // Firestore só liberam a leitura mediante um grant válido, criado a
+      // partir de um shareId existente e no prazo.
+      firebase.initializeApp(window.__FIREBASE_CONFIG__);
+      const auth = firebase.auth();
+      const db = firebase.firestore();
+
+      const cred = await auth.signInAnonymously();
+      const readerUid = cred.user.uid;
+
+      const shareSnap = await db.collection('shares').doc(shareId).get();
+      if(!shareSnap.exists){
+        erro('Link revogado', 'Este compartilhamento não existe mais. Peça um novo link.');
+        return;
+      }
+      const share = shareSnap.data();
+      if(share.expiresAt && share.expiresAt.toMillis() < Date.now()){
+        erro('Link expirado', 'Links de compartilhamento valem 30 dias. Peça um novo.');
         return;
       }
 
+      // Cria (ou reaproveita) a permissão de leitura deste visitante.
+      const grantId = `${share.ownerUid}_${readerUid}`;
+      try{
+        await db.collection('grants').doc(grantId).set({
+          ownerUid: share.ownerUid,
+          readerUid,
+          shareId,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        });
+      }catch(e){ /* se já existir, segue para a leitura */ }
+
+      const recSnap = await db.collection('users').doc(share.ownerUid)
+        .collection('records').orderBy('date','asc').get();
+
+      const data = { ownerName: share.ownerName || 'Aluna', records: recSnap.docs.map(d=>d.data()) };
       const analysis = computeAnalysis(data.records || []).slice().reverse();
       render(`
         <div class="bg-white rounded-2xl p-4 shadow-sm mb-4">
@@ -179,7 +210,13 @@
         <p class="text-[10px] text-muted text-center mt-4 leading-relaxed">Visualização somente-leitura, gerada pela própria usuária. Este conteúdo é educativo e não substitui orientação profissional.</p>
       `);
     }catch(e){
-      render(`<div class="bg-white rounded-2xl p-6 text-center shadow-sm"><p class="text-sm font-semibold">Erro de conexão</p><p class="text-xs text-muted mt-2">Não foi possível carregar o gráfico agora. Tente novamente.</p></div>`);
+      if(e && e.code === 'auth/operation-not-allowed'){
+        erro('Configuração pendente', 'O login anônimo precisa estar ativado no Firebase Console (Authentication → Sign-in method → Anônimo).');
+      } else if(e && e.code === 'permission-denied'){
+        erro('Acesso revogado', 'A dona deste gráfico revogou o compartilhamento ou o link expirou.');
+      } else {
+        erro('Erro de conexão', 'Não foi possível carregar o gráfico agora. Tente novamente.');
+      }
     }
   }
 

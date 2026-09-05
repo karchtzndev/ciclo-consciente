@@ -808,6 +808,11 @@
       render();
     },
     setDraft(field, value){ state.draft[field] = value; render(); },
+    // Para campos de texto livre: atualiza o rascunho SEM redesenhar a tela.
+    // Chamar render() aqui destruiria o próprio campo (e o botão Salvar) no
+    // meio da digitação — no celular isso fazia o toque em "Salvar registro"
+    // se perder, e a anotação nunca era gravada.
+    setDraftQuiet(field, value){ state.draft[field] = value; },
     toggleFator(id){
       const arr = state.draft.fatores;
       const i = arr.indexOf(id);
@@ -817,10 +822,24 @@
     async saveDraft(ev){
       if(ev) ev.preventDefault();
       const d = state.draft;
+
+      // Rede de segurança: lê o texto direto do campo. Se por qualquer motivo
+      // o evento de digitação não tiver disparado (colar, autopreenchimento,
+      // teclado de terceiros no celular), a anotação ainda é gravada.
+      try{
+        const ta = document.querySelector('#formRegistro textarea');
+        if(ta) d.notas = ta.value;
+      }catch(e){}
+
       if(!d.sensacao || !d.muco){
         this.toast('Selecione sensação vulvar e aspecto do muco.', 'error');
         return false;
       }
+      if(!state.currentUser || !state.currentUser.id){
+        this.toast('Sessão expirada. Entre novamente para salvar.', 'error');
+        return false;
+      }
+
       const record = { date:d.date, sensacao:d.sensacao, muco:d.muco, sangramento:d.sangramento, fatores:[...d.fatores], notas:d.notas||'', manualPeak:!!d.manualPeak, personalBIP:!!d.personalBIP };
       try{
         await db.collection('users').doc(state.currentUser.id).collection('records').doc(d.date).set(record);
@@ -828,7 +847,16 @@
         state.tab = 'dashboard';
         state.draft = freshDraft(todayStr());
       }catch(e){
-        this.toast('Erro ao salvar. Tente novamente.', 'error');
+        // Mensagem específica ajuda muito mais que "erro ao salvar" — e o
+        // código do Firebase vai junto para a aba Erros.
+        let msg = 'Erro ao salvar. Tente novamente.';
+        if(e && e.code === 'permission-denied'){
+          msg = 'Sem permissão para salvar. Verifique se as Regras do Firestore foram publicadas.';
+        } else if(e && e.code === 'unavailable'){
+          msg = 'Sem conexão. O registro será sincronizado quando a internet voltar.';
+        }
+        this.toast(msg, 'error');
+        if(window.__LOG_ERROR__) window.__LOG_ERROR__('salvar-registro', msg, 'code: ' + ((e && e.code) || 'sem código') + '\n' + ((e && e.message) || String(e)));
       }
       render();
       return false;
@@ -1039,6 +1067,17 @@
     },
     async revokeShare(shareId){
       try{
+        // Apagar só o share não bastaria: quem já resgatou o link teria um
+        // grant ativo e continuaria enxergando os registros. Os grants
+        // derivados deste link precisam cair junto.
+        try{
+          const grantsSnap = await db.collection('grants')
+            .where('ownerUid','==', state.currentUser.id)
+            .where('shareId','==', shareId)
+            .get();
+          await Promise.all(grantsSnap.docs.map(d => d.ref.delete()));
+        }catch(e){ /* segue para apagar o share mesmo assim */ }
+
         await db.collection('shares').doc(shareId).delete();
         this.toast('Compartilhamento revogado.', 'info');
         await this.loadShares();
@@ -1072,29 +1111,68 @@
       if(match) code = match[1];
       if(!code){ this.toast('Cole o código ou link que a aluna te enviou.', 'error'); return; }
 
+      if(state.currentUser.isGuest){
+        this.toast('Entre com uma conta de e-mail e senha para vincular.', 'error');
+        return;
+      }
+
       state.addStudentBusy = true; render();
       try{
-        const base = window.__FUNCTIONS_BASE_URL__;
-        if(!base || base==='SUA_FUNCTIONS_URL_AQUI') throw new Error('Recurso ainda não configurado pelo administrador do app.');
-        const resp = await fetch(`${base}?shareId=${encodeURIComponent(code)}`, { headers: await getAppCheckHeaders() });
-        const data = await resp.json();
-        if(!resp.ok) throw new Error(data.error || 'Código inválido ou expirado.');
+        // 1. Lê o link compartilhado. O shareId é o próprio token de acesso.
+        const shareSnap = await db.collection('shares').doc(code).get();
+        if(!shareSnap.exists) throw new Error('Código inválido. Confira se copiou o link inteiro.');
 
+        const share = shareSnap.data();
+        if(share.expiresAt && share.expiresAt.toMillis() < Date.now()){
+          throw new Error('Este link expirou. Peça um novo à aluna.');
+        }
+        if(share.ownerUid === state.currentUser.id){
+          throw new Error('Este é o seu próprio link de compartilhamento.');
+        }
+
+        // 2. Cria a permissão de leitura. As Regras do Firestore revalidam o
+        //    share (existe? é desta dona? está no prazo?) — o app não é a
+        //    única barreira.
+        const grantId = `${share.ownerUid}_${state.currentUser.id}`;
+        await db.collection('grants').doc(grantId).set({
+          ownerUid: share.ownerUid,
+          readerUid: state.currentUser.id,
+          shareId: code,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        });
+
+        // 3. Guarda na lista da instrutora (cache do nome, para exibição).
         await db.collection('instructors').doc(state.currentUser.id).collection('students').doc(code).set({
           shareId: code,
-          studentName: data.ownerName || 'Aluna',
+          ownerUid: share.ownerUid,
+          studentName: share.ownerName || 'Aluna',
           addedAt: firebase.firestore.FieldValue.serverTimestamp(),
         });
+
         this.toast('Aluna vinculada com sucesso!', 'success');
         ev.target.reset();
         await this.loadLinkedStudents();
       }catch(e){
-        this.toast(e.message || 'Não foi possível vincular agora.', 'error');
+        const msg = (e && e.code === 'permission-denied')
+          ? 'Link inválido, expirado ou revogado pela aluna.'
+          : (e.message || 'Não foi possível vincular agora.');
+        this.toast(msg, 'error');
       }
       state.addStudentBusy = false; render();
     },
     async removeStudent(shareId){
       try{
+        const entry = (state.linkedStudents || []).find(s => s.id === shareId || s.shareId === shareId);
+        const ownerUid = entry && entry.ownerUid;
+
+        // Apaga a permissão de leitura primeiro — se só removêssemos da lista,
+        // o acesso aos registros continuaria valendo nas regras do Firestore.
+        if(ownerUid){
+          try{
+            await db.collection('grants').doc(`${ownerUid}_${state.currentUser.id}`).delete();
+          }catch(e){ /* já pode ter sido revogado pela aluna */ }
+        }
+
         await db.collection('instructors').doc(state.currentUser.id).collection('students').doc(shareId).delete();
         this.toast('Aluna desvinculada.', 'info');
         await this.loadLinkedStudents();
@@ -1106,13 +1184,32 @@
       state.viewingStudent = { loading:true };
       state.viewingStudentLoading = true; render();
       try{
-        const base = window.__FUNCTIONS_BASE_URL__;
-        const resp = await fetch(`${base}?shareId=${encodeURIComponent(shareId)}`, { headers: await getAppCheckHeaders() });
-        const data = await resp.json();
-        if(!resp.ok) throw new Error(data.error || 'Não foi possível abrir este gráfico.');
-        state.viewingStudent = { name: data.ownerName, analysis: computeAnalysis(data.records || []).slice().reverse() };
+        // Descobre de quem é este vínculo. Vínculos antigos (criados na versão
+        // que usava Cloud Function) não têm ownerUid salvo — nesse caso busca
+        // no próprio share.
+        const entry = (state.linkedStudents || []).find(s => s.id === shareId || s.shareId === shareId);
+        let ownerUid = entry && entry.ownerUid;
+        let ownerName = entry && entry.studentName;
+
+        if(!ownerUid){
+          const shareSnap = await db.collection('shares').doc(shareId).get();
+          if(!shareSnap.exists) throw new Error('Link revogado pela aluna.');
+          ownerUid = shareSnap.data().ownerUid;
+          ownerName = shareSnap.data().ownerName || ownerName;
+        }
+
+        const snap = await db.collection('users').doc(ownerUid)
+          .collection('records').orderBy('date','asc').get();
+
+        state.viewingStudent = {
+          name: ownerName || 'Aluna',
+          analysis: computeAnalysis(snap.docs.map(d=>d.data())).slice().reverse(),
+        };
       }catch(e){
-        this.toast(e.message || 'Link expirado ou revogado pela aluna.', 'error');
+        const msg = (e && e.code === 'permission-denied')
+          ? 'Acesso revogado ou link expirado. Peça um novo link à aluna.'
+          : (e.message || 'Não foi possível abrir este gráfico.');
+        this.toast(msg, 'error');
         state.viewingStudent = null;
       }
       state.viewingStudentLoading = false; render();
@@ -1594,7 +1691,7 @@
     const d = state.draft;
     const existed = !!d.id;
     return `
-    <form onsubmit="return App.saveDraft(event)" class="space-y-5">
+    <form id="formRegistro" onsubmit="return App.saveDraft(event)" class="space-y-5">
       <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp">
         <label class="text-xs font-semibold text-muted uppercase tracking-wide">Data</label>
         <input type="date" value="${d.date}" max="${todayStr()}" onchange="App.setDraftDate(this.value)"
@@ -1651,7 +1748,7 @@
 
       <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp">
         <label class="text-xs font-semibold text-muted uppercase tracking-wide">Notas (opcional)</label>
-        <textarea onchange="App.setDraft('notas', this.value)" rows="3" placeholder="Alguma observação adicional sobre hoje..."
+        <textarea oninput="App.setDraftQuiet('notas', this.value)" rows="3" placeholder="Alguma observação adicional sobre hoje..."
           class="mt-1.5 w-full border border-primary/15 rounded-xl px-4 py-3 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/40">${esc(d.notas)}</textarea>
       </div>
 
