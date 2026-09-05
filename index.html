@@ -275,10 +275,13 @@
       chart: '<path d="M4 20V11"/><path d="M12 20V4"/><path d="M20 20v-7"/>',
       user: '<circle cx="12" cy="8" r="3.6"/><path d="M4.5 20c0-4.1 3.4-6.4 7.5-6.4S19.5 15.9 19.5 20"/>',
       lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7.6a4 4 0 0 1 8 0V11"/>',
+      eye: '<path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>',
+      eyeOff: '<path d="M10.7 6.2A9.6 9.6 0 0 1 12 5.5c6.4 0 10 6.5 10 6.5a17 17 0 0 1-3.2 4M6.3 7.8A16.7 16.7 0 0 0 2 12s3.6 6.5 10 6.5c1.6 0 3-.4 4.2-1M4 4l16 16"/>',
       check: '<path d="M4 12.5 9.5 18 20 6"/>',
       x: '<path d="M6 6l12 12M18 6 6 18"/>',
       bug: '<path d="M8 6a4 4 0 0 1 8 0"/><rect x="7" y="8" width="10" height="11" rx="5"/><path d="M7 12H3M21 12h-4M7.5 16.5 4 18.5M16.5 16.5 20 18.5M7.5 9.5 4 7.5M16.5 9.5 20 7.5"/>',
       copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/>',
+      share: '<path d="M12 3v13"/><path d="m8 7 4-4 4 4"/><path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/>',
       chevron: '<path d="M9 6l6 6-6 6"/>',
       drop: '<path d="M12 3.5c3.6 4.4 6.5 8.1 6.5 11.4A6.5 6.5 0 1 1 5.5 14.9C5.5 11.6 8.4 7.9 12 3.5Z"/>',
       download: '<path d="M12 4v11"/><path d="M7 11l5 5 5-5"/><path d="M5 20h14"/>',
@@ -349,7 +352,7 @@
         ? { id: fbUser.uid, email: fbUser.email || '', ...snap.data() }
         : { id: fbUser.uid, email: fbUser.email || '', name: (fbUser.email||'Usuária').split('@')[0], plan:'free' };
       if(state.showOnboarding===null){
-        state.showOnboarding = !state.currentUser.onboardingSeen && state.currentUser.role!=='instrutora' && !state.currentUser.isGuest;
+        state.showOnboarding = !state.currentUser.onboardingSeen && state.currentUser.role==='aluna' && !state.currentUser.isGuest;
       }
       render();
     }, err => console.error('users listener:', err));
@@ -578,6 +581,12 @@
 
   /* Modo beta gratuito: libera todas as funcionalidades para todas as usuárias. */
   const FREE_MODE = window.__FREE_MODE__ === true;
+
+  // O papel foi renomeado de 'parceiro' para 'esposo'. Contas criadas antes
+  // da troca guardaram 'parceiro' no Firestore, então os dois valores valem.
+  function ehPapelEsposo(u){
+    return !!u && (u.role === 'esposo' || u.role === 'parceiro');
+  }
   function hasPremium(user){
     if(FREE_MODE) return true;
     return !!(user && user.plan === 'premium');
@@ -606,6 +615,10 @@
     notifBusy: false,
     deleteConfirmOpen: false,
     deletePassword: '',
+    copiedShareId: null,
+    suggestions: [],
+    suggestTarget: null,
+    suggestBusy: false,
     deleteBusy: false,
     shares: null,
     sharesLoading: false,
@@ -712,6 +725,8 @@
           state.recordsLoading = true;
           attachUserDocListener(fbUser);
           attachRecordsListener(fbUser.uid);
+          // Sugestões pendentes do esposo (só relevante para a dona do gráfico).
+          setTimeout(()=>{ try{ App.carregarSugestoes(); }catch(e){} }, 800);
         } else {
           state.view = 'auth';
           state.currentUser = null;
@@ -759,7 +774,8 @@
       const email = (fd.get('email')||'').trim().toLowerCase();
       const password = fd.get('password')||'';
       const consent = fd.get('consent');
-      const role = fd.get('role')==='instrutora' ? 'instrutora' : 'aluna';
+      const papeis = ['aluna','instrutora','esposo'];
+      const role = papeis.includes(fd.get('role')) ? fd.get('role') : 'aluna';
       if(!name || !email || password.length<6){
         state.authError = 'Preencha nome, e-mail e uma senha com 6+ caracteres.';
         render(); return false;
@@ -816,7 +832,7 @@
     async logout(){
       detachListeners();
       try{ await auth.signOut(); }catch(e){}
-      state = { view:'auth', authMode:'login', authError:'', authBusy:false, tab:'dashboard', currentUser:null, fbUser:null, records:[], recordsLoading:false, draft:null, toast:null, paywall:null, guideOpen:false, emailBannerDismissed:false, checkoutBusy:false, portalBusy:false, notifBusy:false, deleteConfirmOpen:false, deletePassword:'', deleteBusy:false, shares:null, sharesLoading:false, shareBusy:false, instructorTab:'alunas', linkedStudents:null, studentsLoading:false, addStudentBusy:false, viewingStudent:null, viewingStudentLoading:false, graficoView:'lista', showOnboarding:null, onboardingStep:0 };
+      state = { view:'auth', authMode:'login', authError:'', authBusy:false, tab:'dashboard', currentUser:null, fbUser:null, records:[], recordsLoading:false, draft:null, toast:null, paywall:null, guideOpen:false, emailBannerDismissed:false, checkoutBusy:false, portalBusy:false, notifBusy:false, deleteConfirmOpen:false, deletePassword:'', deleteBusy:false, suggestions:[], suggestTarget:null, suggestBusy:false, shares:null, sharesLoading:false, shareBusy:false, instructorTab:'alunas', linkedStudents:null, studentsLoading:false, addStudentBusy:false, viewingStudent:null, viewingStudentLoading:false, graficoView:'lista', showOnboarding:null, onboardingStep:0 };
       render();
     },
 
@@ -841,6 +857,162 @@
       state.draft = freshDraft(dateStr);
       render();
     },
+    // Mostrar/ocultar senha. Mexe direto no DOM de propósito: chamar render()
+    // aqui recriaria o input, apagando o que já foi digitado e tirando o foco.
+    togglePassword(btn){
+      try{
+        const campo = btn.parentElement.querySelector('input');
+        if(!campo) return;
+        const mostrando = campo.type === 'text';
+        campo.type = mostrando ? 'password' : 'text';
+        btn.setAttribute('aria-label', mostrando ? 'Mostrar senha' : 'Ocultar senha');
+        btn.setAttribute('aria-pressed', mostrando ? 'false' : 'true');
+        btn.innerHTML = mostrando ? icon('eye','w-5 h-5') : icon('eyeOff','w-5 h-5');
+        // Devolve o foco ao campo, no fim do texto.
+        campo.focus();
+        const v = campo.value; campo.value = ''; campo.value = v;
+      }catch(e){}
+    },
+
+    // Copiar um link já existente. Aqui a cópia acontece direto no toque
+    // (sem await antes), que é o que o Safari do iPhone exige para liberar
+    // a área de transferência.
+    async copyShareLink(shareId){
+      const url = `${window.location.origin}/share.html?id=${shareId}`;
+      let ok = false;
+      try{
+        if(navigator.clipboard && window.isSecureContext){
+          await navigator.clipboard.writeText(url);
+          ok = true;
+        }
+      }catch(e){ ok = false; }
+      if(!ok){
+        try{
+          const ta = document.createElement('textarea');
+          ta.value = url;
+          ta.setAttribute('readonly','');
+          ta.style.position = 'fixed';
+          ta.style.top = '-1000px';
+          document.body.appendChild(ta);
+          ta.select();
+          ta.setSelectionRange(0, url.length);
+          ok = document.execCommand('copy');
+          document.body.removeChild(ta);
+        }catch(e){ ok = false; }
+      }
+      if(ok){
+        state.copiedShareId = shareId;
+        render();
+        setTimeout(()=>{ state.copiedShareId = null; render(); }, 2500);
+      } else {
+        this.toast('Não consegui copiar. Selecione o link acima e copie manualmente.', 'error');
+      }
+    },
+
+    // Abre a folha de compartilhamento do próprio celular (WhatsApp, e-mail…).
+    async shareLinkNative(shareId){
+      const url = `${window.location.origin}/share.html?id=${shareId}`;
+      try{
+        await navigator.share({
+          title: 'Meu gráfico — Ciclo Consciente',
+          text: 'Acompanhe meu gráfico do Método Billings (link válido por 30 dias):',
+          url,
+        });
+      }catch(e){
+        // Cancelar a folha de compartilhamento não é erro.
+        if(e && e.name === 'AbortError') return;
+        this.copyShareLink(shareId);
+      }
+    },
+
+    /* ---------- SUGESTÕES DO ESPOSO ---------- */
+    // O esposo não escreve no gráfico. Ele envia uma sugestão que fica
+    // pendente até a dona aprovar — o registro só existe depois disso.
+    async enviarSugestao(ev){
+      if(ev) ev.preventDefault();
+      const alvo = state.suggestTarget;
+      if(!alvo || !alvo.ownerUid){ this.toast('Selecione a pessoa antes de sugerir.', 'error'); return; }
+
+      const fd = new FormData(ev.target);
+      const data = fd.get('data') || todayStr();
+      const sensacao = fd.get('sensacao') || '';
+      const muco = fd.get('muco') || '';
+      const notas = (fd.get('notas') || '').trim();
+
+      if(!sensacao || !muco){
+        this.toast('Preencha sensação e muco conforme ela relatou.', 'error');
+        return;
+      }
+
+      state.suggestBusy = true; render();
+      try{
+        await db.collection('users').doc(alvo.ownerUid).collection('suggestions').doc(data).set({
+          ownerUid: alvo.ownerUid,
+          authorUid: state.currentUser.id,
+          authorName: state.currentUser.name || 'Esposo',
+          date: data, sensacao, muco, notas,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        });
+        this.toast('Sugestão enviada. Ela precisa aprovar para entrar no gráfico.', 'success');
+        state.suggestTarget = null;
+        ev.target.reset();
+      }catch(e){
+        const msg = (e && e.code === 'permission-denied')
+          ? 'Sem permissão. O link pode ter expirado ou sido revogado.'
+          : 'Não foi possível enviar a sugestão agora.';
+        this.toast(msg, 'error');
+        if(window.__LOG_ERROR__) window.__LOG_ERROR__('sugestao', msg, 'code: ' + ((e && e.code)||'—'));
+      }
+      state.suggestBusy = false; render();
+    },
+
+    async carregarSugestoes(){
+      if(!state.currentUser || state.currentUser.role !== 'aluna') return;
+      try{
+        const snap = await db.collection('users').doc(state.currentUser.id)
+          .collection('suggestions').orderBy('date','desc').limit(20).get();
+        state.suggestions = snap.docs.map(d=>({ id:d.id, ...d.data() }));
+      }catch(e){ state.suggestions = []; }
+      render();
+    },
+
+    async aprovarSugestao(sugId){
+      const sug = (state.suggestions||[]).find(s=>s.id===sugId);
+      if(!sug) return;
+      try{
+        const existente = (state.records||[]).find(r=>r.date===sug.date);
+        const base = existente || freshDraft(sug.date);
+        await db.collection('users').doc(state.currentUser.id).collection('records').doc(sug.date).set({
+          ...base,
+          date: sug.date,
+          sensacao: sug.sensacao,
+          muco: sug.muco,
+          notas: sug.notas || (base.notas || ''),
+          // Fica registrado que o dado veio de outra pessoa. Importante:
+          // meses depois, é o que diz se a observação foi dela ou transcrita.
+          registradoPor: sug.authorName || 'Esposo',
+        });
+        await db.collection('users').doc(state.currentUser.id).collection('suggestions').doc(sugId).delete();
+        this.toast('Sugestão aprovada e registrada.', 'success');
+        await this.carregarSugestoes();
+      }catch(e){
+        this.toast('Não foi possível aprovar agora.', 'error');
+      }
+    },
+
+    async descartarSugestao(sugId){
+      try{
+        await db.collection('users').doc(state.currentUser.id).collection('suggestions').doc(sugId).delete();
+        this.toast('Sugestão descartada.', 'info');
+        await this.carregarSugestoes();
+      }catch(e){
+        this.toast('Não foi possível descartar agora.', 'error');
+      }
+    },
+
+    abrirSugestao(ownerUid, nome){ state.suggestTarget = { ownerUid, nome }; render(); },
+    fecharSugestao(){ state.suggestTarget = null; render(); },
+
     setDraft(field, value){ state.draft[field] = value; render(); },
     // Para campos de texto livre: atualiza o rascunho SEM redesenhar a tela.
     // Chamar render() aqui destruiria o próprio campo (e o botão Salvar) no
@@ -1046,7 +1218,7 @@
       render();
     },
 
-    /* ---------- COMPARTILHAMENTO (instrutora / parceiro) ---------- */
+    /* ---------- COMPARTILHAMENTO (instrutora / esposo) ---------- */
     async loadShares(){
       if(state.currentUser.isGuest) return;
       state.sharesLoading = true; render();
@@ -1085,13 +1257,10 @@
           createdAt: firebase.firestore.FieldValue.serverTimestamp(),
           expiresAt,
         });
-        const url = `${window.location.origin}/share.html?id=${ref.id}`;
-        try{
-          await navigator.clipboard.writeText(url);
-          this.toast('Link copiado! Válido por 30 dias.', 'success');
-        }catch(e){
-          this.toast('Link gerado: ' + url, 'info');
-        }
+        // Não tentamos copiar aqui: depois do await no Firestore o iPhone já
+        // não considera isso um gesto do usuário e bloqueia a área de
+        // transferência. O link aparece na lista com botão de copiar próprio.
+        this.toast('Link criado! Use o botão Copiar abaixo.', 'success');
         await this.loadShares();
       }catch(e){
         this.toast('Não foi possível gerar o link agora.', 'error');
@@ -1504,7 +1673,11 @@
               <label class="text-xs font-semibold text-muted uppercase tracking-wide">Senha</label>
               <button type="button" onclick="App.forgotPassword(event)" class="text-[11px] font-semibold text-primary">Esqueci minha senha</button>
             </div>
-            <input name="password" type="password" required placeholder="••••••••" class="mt-1.5 w-full border border-primary/15 rounded-xl px-4 py-3 bg-white focus:outline-none focus:ring-2 focus:ring-primary/40">
+            <div class="relative mt-1.5">
+              <input name="password" type="password" required placeholder="••••••••" class="w-full border border-primary/15 rounded-xl px-4 py-3 pr-12 bg-white focus:outline-none focus:ring-2 focus:ring-primary/40">
+              <button type="button" onclick="App.togglePassword(this)" aria-label="Mostrar senha" aria-pressed="false"
+                class="absolute right-3 top-1/2 -translate-y-1/2 text-muted p-1 tap">${icon('eye','w-5 h-5')}</button>
+            </div>
           </div>
           <button type="submit" ${state.authBusy?'disabled':''} class="tap w-full bg-primary text-white font-semibold py-3.5 rounded-xl shadow-soft disabled:opacity-60">${state.authBusy?'Entrando…':'Entrar'}</button>
         </form>
@@ -1520,14 +1693,22 @@
           </div>
           <div>
             <label class="text-xs font-semibold text-muted uppercase tracking-wide">Senha</label>
-            <input name="password" type="password" required placeholder="mínimo 6 caracteres" class="mt-1.5 w-full border border-primary/15 rounded-xl px-4 py-3 bg-white focus:outline-none focus:ring-2 focus:ring-primary/40">
+            <div class="relative mt-1.5">
+              <input name="password" type="password" required placeholder="mínimo 6 caracteres" class="w-full border border-primary/15 rounded-xl px-4 py-3 pr-12 bg-white focus:outline-none focus:ring-2 focus:ring-primary/40">
+              <button type="button" onclick="App.togglePassword(this)" aria-label="Mostrar senha" aria-pressed="false"
+                class="absolute right-3 top-1/2 -translate-y-1/2 text-muted p-1 tap">${icon('eye','w-5 h-5')}</button>
+            </div>
           </div>
           <div>
             <label class="text-xs font-semibold text-muted uppercase tracking-wide">Você é</label>
-            <div class="mt-1.5 grid grid-cols-2 gap-2">
+            <div class="mt-1.5 space-y-2">
               <label class="border border-primary/15 rounded-xl px-3 py-2.5 flex items-center gap-2 has-[:checked]:border-primary has-[:checked]:bg-primary-soft">
                 <input type="radio" name="role" value="aluna" checked class="accent-[#4A2545]">
-                <span class="text-xs font-semibold">Aluna</span>
+                <span class="text-xs font-semibold">Aluna &mdash; registro meu próprio ciclo</span>
+              </label>
+              <label class="border border-primary/15 rounded-xl px-3 py-2.5 flex items-center gap-2 has-[:checked]:border-primary has-[:checked]:bg-primary-soft">
+                <input type="radio" name="role" value="esposo" class="accent-[#4A2545]">
+                <span class="text-xs font-semibold">Esposo &mdash; acompanho o ciclo dela</span>
               </label>
               <label class="border border-primary/15 rounded-xl px-3 py-2.5 flex items-center gap-2 has-[:checked]:border-primary has-[:checked]:bg-primary-soft">
                 <input type="radio" name="role" value="instrutora" class="accent-[#4A2545]">
@@ -1711,6 +1892,29 @@
         <p class="font-display text-lg">Gráfico completo + Ápice automático</p>
         <p class="text-xs text-white/70 mt-1">Veja a Regra dos 3 dias, histórico ilimitado e exporte relatórios em PDF.</p>
       </button>` : ''}
+
+      <!-- Sugestões pendentes do esposo -->
+      ${(state.suggestions && state.suggestions.length) ? `
+      <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp border border-transicao/30">
+        <div class="flex items-center gap-2 mb-1">
+          ${icon('alert','w-4 h-4 text-transicao')}
+          <p class="text-sm font-semibold">${state.suggestions.length === 1 ? 'Sugestão aguardando' : state.suggestions.length + ' sugestões aguardando'}</p>
+        </div>
+        <p class="text-[11px] text-muted leading-relaxed mb-3">Nada entra no seu gráfico sem você aprovar. Confira se corresponde ao que você observou.</p>
+        <div class="space-y-3">
+          ${state.suggestions.map(s=>`
+          <div class="bg-canvas rounded-xl p-3">
+            <p class="text-[10px] text-muted font-semibold uppercase tracking-wide mb-1.5">${esc(fmtDate(s.date))} &middot; enviado por ${esc(s.authorName||'Esposo')}</p>
+            <p class="text-xs leading-relaxed"><span class="text-muted">Sensação:</span> <strong>${esc(s.sensacao)}</strong></p>
+            <p class="text-xs leading-relaxed"><span class="text-muted">Muco:</span> <strong>${esc(s.muco)}</strong></p>
+            ${s.notas ? `<p class="text-xs leading-relaxed mt-1"><span class="text-muted">Obs.:</span> ${esc(s.notas)}</p>` : ''}
+            <div class="flex gap-2 mt-2.5">
+              <button onclick="App.aprovarSugestao('${s.id}')" class="tap flex-1 bg-primary text-white text-[11px] font-semibold py-2 rounded-lg">Aprovar</button>
+              <button onclick="App.descartarSugestao('${s.id}')" class="tap flex-1 bg-white border border-primary/20 text-primary text-[11px] font-semibold py-2 rounded-lg">Descartar</button>
+            </div>
+          </div>`).join('')}
+        </div>
+      </div>` : ''}
 
       <!-- Banner beta gratuito -->
       ${FREE_MODE ? `
@@ -2161,7 +2365,7 @@
       </div>
 
       <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp">
-        <p class="text-xs font-semibold text-muted uppercase tracking-wide mb-1">Compartilhar com instrutora ou parceiro</p>
+        <p class="text-xs font-semibold text-muted uppercase tracking-wide mb-1">Compartilhar com instrutora ou esposo</p>
         <p class="text-[11px] text-muted mb-3 leading-relaxed">Gera um link somente-leitura do seu gráfico, válido por 30 dias. Revogável a qualquer momento.</p>
         ${isGuest ? `
         <p class="text-xs text-transicao">Crie uma conta com e-mail e senha para compartilhar seu gráfico.</p>
@@ -2173,9 +2377,18 @@
         ${(state.shares && state.shares.length) ? `
         <div class="space-y-2">
           ${state.shares.map(s=>`
-            <div class="flex items-center justify-between gap-2 bg-primary-soft/60 rounded-xl px-3 py-2.5">
-              <span class="text-[11px] text-primary font-mono truncate">…/share.html?id=${s.id.slice(0,8)}…</span>
-              <button onclick="App.revokeShare('${s.id}')" class="tap text-[11px] font-semibold text-fertil shrink-0">Revogar</button>
+            <div class="bg-primary-soft/60 rounded-xl px-3 py-2.5">
+              <p class="text-[11px] text-primary font-mono break-all leading-relaxed mb-2">${esc(window.location.origin)}/share.html?id=${esc(s.id)}</p>
+              <div class="flex items-center gap-2">
+                <button onclick="App.copyShareLink('${s.id}')" class="tap flex-1 bg-primary text-white text-[11px] font-semibold py-2 rounded-lg flex items-center justify-center gap-1.5">
+                  ${icon('copy','w-3.5 h-3.5')} ${state.copiedShareId===s.id ? 'Copiado!' : 'Copiar'}
+                </button>
+                ${navigator.share ? `
+                <button onclick="App.shareLinkNative('${s.id}')" class="tap flex-1 bg-white border border-primary/20 text-primary text-[11px] font-semibold py-2 rounded-lg flex items-center justify-center gap-1.5">
+                  ${icon('share','w-3.5 h-3.5')} Enviar
+                </button>` : ''}
+                <button onclick="App.revokeShare('${s.id}')" class="tap text-[11px] font-semibold text-fertil px-3 py-2 shrink-0">Revogar</button>
+              </div>
             </div>`).join('')}
         </div>` : (state.sharesLoading ? '' : `<p class="text-[11px] text-muted">Nenhum link ativo no momento.</p>`)}
         `}
@@ -2258,9 +2471,13 @@
         <p class="text-sm text-muted mb-4 leading-relaxed">Isso apaga permanentemente seu perfil e todos os registros do ciclo. Essa ação não pode ser desfeita. Considere exportar seus dados antes.</p>
         ${(state.currentUser && state.currentUser.isGuest) ? '' : `
         <label class="block text-xs font-semibold text-muted uppercase tracking-wide mb-1.5">Confirme sua senha</label>
-        <input id="inputSenhaExcluir" type="password" autocomplete="current-password" placeholder="Sua senha"
-          oninput="App.setDeletePassword(this.value)" ${state.deleteBusy?'disabled':''}
-          class="w-full border border-primary/15 rounded-xl px-4 py-3 bg-white text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-fertil/40 disabled:opacity-60">
+        <div class="relative mb-2">
+          <input id="inputSenhaExcluir" type="password" autocomplete="current-password" placeholder="Sua senha"
+            oninput="App.setDeletePassword(this.value)" ${state.deleteBusy?'disabled':''}
+            class="w-full border border-primary/15 rounded-xl px-4 py-3 pr-12 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-fertil/40 disabled:opacity-60">
+          <button type="button" onclick="App.togglePassword(this)" aria-label="Mostrar senha" aria-pressed="false"
+            class="absolute right-3 top-1/2 -translate-y-1/2 text-muted p-1 tap">${icon('eye','w-5 h-5')}</button>
+        </div>
         <p class="text-[11px] text-muted mb-5 leading-relaxed">Pedimos a senha por segurança. Se estiver errada, nada será apagado.</p>`}
         <button onclick="App.confirmDeleteAccount()" ${state.deleteBusy?'disabled':''} class="tap w-full bg-fertil text-white font-semibold py-3.5 rounded-xl shadow-soft mb-2.5 disabled:opacity-60">${state.deleteBusy?'Excluindo…':'Sim, excluir permanentemente'}</button>
         <button onclick="App.closeDeleteConfirm()" ${state.deleteBusy?'disabled':''} class="tap w-full text-muted font-medium py-2 text-sm disabled:opacity-60">Cancelar</button>
@@ -2335,10 +2552,10 @@
         <svg class="absolute -right-10 -top-10 opacity-15" width="150" height="150" viewBox="0 0 150 150"><circle cx="75" cy="75" r="70" fill="none" stroke="white" stroke-width="1.5"/></svg>
         <div class="relative flex items-center justify-between">
           <div>
-            <p class="text-white/60 text-xs font-medium tracking-wide uppercase">Painel da instrutora</p>
+            <p class="text-white/60 text-xs font-medium tracking-wide uppercase">${ehPapelEsposo(u) ? 'Acompanhamento' : 'Painel da instrutora'}</p>
             <h1 class="font-display text-2xl mt-0.5">Olá, ${esc(u.name.split(' ')[0])}</h1>
           </div>
-          <span class="text-[11px] font-semibold px-3 py-1.5 rounded-full bg-white/15 text-white">★ Instrutora</span>
+          <span class="text-[11px] font-semibold px-3 py-1.5 rounded-full bg-white/15 text-white">${ehPapelEsposo(u) ? 'Esposo' : '★ Instrutora'}</span>
         </div>
       </header>
 
@@ -2354,7 +2571,7 @@
         <div class="grid grid-cols-2">
           <button class="tap flex flex-col items-center gap-1 py-3" onclick="App.setInstructorTab('alunas')">
             <span class="${state.instructorTab==='alunas' ? 'text-primary' : 'text-muted'}">${icon('user','w-5 h-5')}</span>
-            <span class="text-[10px] font-semibold ${state.instructorTab==='alunas' ? 'text-primary' : 'text-muted'}">Alunas</span>
+            <span class="text-[10px] font-semibold ${state.instructorTab==='alunas' ? 'text-primary' : 'text-muted'}">${ehPapelEsposo(u) ? 'Esposa' : 'Alunas'}</span>
           </button>
           <button class="tap flex flex-col items-center gap-1 py-3" onclick="App.setInstructorTab('perfil')">
             <span class="${state.instructorTab==='perfil' ? 'text-primary' : 'text-muted'}">${icon('shield','w-5 h-5')}</span>
@@ -2369,12 +2586,61 @@
     </div>`;
   }
 
+
+  /* ---------- FORMULÁRIO DE SUGESTÃO (esposo) ---------- */
+  function renderFormSugestao(){
+    const alvo = state.suggestTarget;
+    return `
+    <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp border border-primary/20">
+      <div class="flex items-start justify-between gap-2 mb-1">
+        <p class="text-xs font-semibold text-muted uppercase tracking-wide">Sugerir registro${alvo.nome ? ' &mdash; ' + esc(alvo.nome) : ''}</p>
+        <button onclick="App.fecharSugestao()" class="tap text-muted shrink-0">${icon('x','w-4 h-4')}</button>
+      </div>
+      <p class="text-[11px] text-muted leading-relaxed mb-3">Preencha <strong>conforme ela relatou</strong>. A observação é dela &mdash; você está apenas transcrevendo. Ela recebe a sugestão e decide se entra no gráfico.</p>
+
+      <form onsubmit="return App.enviarSugestao(event)" class="space-y-3">
+        <div>
+          <label class="text-[10px] font-semibold text-muted uppercase tracking-wide">Dia</label>
+          <input name="data" type="date" value="${todayStr()}" max="${todayStr()}" required
+            class="mt-1 w-full border border-primary/15 rounded-xl px-3 py-2.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-primary/40">
+        </div>
+        <div>
+          <label class="text-[10px] font-semibold text-muted uppercase tracking-wide">Sensação que ela descreveu</label>
+          <select name="sensacao" required class="mt-1 w-full border border-primary/15 rounded-xl px-3 py-2.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-primary/40">
+            <option value="">Selecione&hellip;</option>
+            ${SENSACAO_OPTIONS.map(o=>`<option value="${o.id}">${esc(o.label)}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label class="text-[10px] font-semibold text-muted uppercase tracking-wide">Muco que ela descreveu</label>
+          <select name="muco" required class="mt-1 w-full border border-primary/15 rounded-xl px-3 py-2.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-primary/40">
+            <option value="">Selecione&hellip;</option>
+            ${MUCUS_OPTIONS.map(o=>`<option value="${o.id}">${esc(o.label)}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label class="text-[10px] font-semibold text-muted uppercase tracking-wide">Observação (opcional)</label>
+          <textarea name="notas" rows="2" placeholder="Algo que ela mencionou"
+            class="mt-1 w-full border border-primary/15 rounded-xl px-3 py-2.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-primary/40"></textarea>
+        </div>
+        <button type="submit" ${state.suggestBusy?'disabled':''} class="tap w-full bg-primary text-white font-semibold py-3 rounded-xl text-sm disabled:opacity-60">
+          ${state.suggestBusy ? 'Enviando&hellip;' : 'Enviar para aprovação'}
+        </button>
+      </form>
+    </div>`;
+  }
+
   function renderInstructorAlunas(){
+    // 'parceiro' é aceito por compatibilidade com contas criadas antes da
+    // troca do rótulo para 'esposo'.
+    const ehEsposo = ehPapelEsposo(state.currentUser);
+    const quem = ehEsposo ? 'sua esposa' : 'sua aluna';
     return `
     <div class="space-y-5">
+      ${state.suggestTarget ? renderFormSugestao() : ''}
       <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp">
-        <p class="text-xs font-semibold text-muted uppercase tracking-wide mb-1">Vincular nova aluna</p>
-        <p class="text-[11px] text-muted mb-3 leading-relaxed">Peça para sua aluna gerar um link em Perfil → "Compartilhar com instrutora ou parceiro" e cole aqui o link ou o código.</p>
+        <p class="text-xs font-semibold text-muted uppercase tracking-wide mb-1">${ehEsposo ? 'Vincular' : 'Vincular nova aluna'}</p>
+        <p class="text-[11px] text-muted mb-3 leading-relaxed">Peça para ${quem} gerar um link em Perfil → "Compartilhar com instrutora ou esposo" e cole aqui o link ou o código.</p>
         <form onsubmit="return App.addStudentByCode(event)" class="flex gap-2">
           <input name="code" type="text" required placeholder="Cole o link ou código aqui" class="flex-1 border border-primary/15 rounded-xl px-3 py-2.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-primary/40">
           <button type="submit" ${state.addStudentBusy?'disabled':''} class="tap shrink-0 bg-primary text-white font-semibold px-4 rounded-xl text-xs disabled:opacity-60">${state.addStudentBusy?'…':'Vincular'}</button>
@@ -2382,7 +2648,7 @@
       </div>
 
       <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp">
-        <p class="text-xs font-semibold text-muted uppercase tracking-wide mb-3">Suas alunas (${state.linkedStudents ? state.linkedStudents.length : 0})</p>
+        <p class="text-xs font-semibold text-muted uppercase tracking-wide mb-3">${ehEsposo ? 'Acompanhando' : 'Suas alunas'} (${state.linkedStudents ? state.linkedStudents.length : 0})</p>
         ${state.studentsLoading ? `<p class="text-xs text-muted">Carregando…</p>` : ''}
         ${(state.linkedStudents && state.linkedStudents.length) ? `
         <div class="space-y-2">
@@ -2393,11 +2659,13 @@
                 <span class="block text-xs font-semibold truncate">${esc(s.studentName||'Aluna')}</span>
                 <span class="block text-[10px] text-primary font-semibold">Ver gráfico →</span>
               </button>
+              ${ehEsposo && s.ownerUid ? `
+              <button onclick="App.abrirSugestao('${s.ownerUid}','${esc(s.studentName||'')}')" class="tap shrink-0 bg-primary text-white text-[10px] font-semibold px-2.5 py-1.5 rounded-lg">Sugerir</button>` : ''}
               <button onclick="App.removeStudent('${s.id}')" class="tap shrink-0 text-fertil">${icon('trash','w-4 h-4')}</button>
             </div>`).join('')}
         </div>` : (state.studentsLoading ? '' : `<p class="text-xs text-muted text-center py-6">Nenhuma aluna vinculada ainda.</p>`)}
       </div>
-      <p class="text-[10px] text-muted text-center leading-relaxed pb-2">Os vínculos seguem a validade do link compartilhado pela aluna (30 dias). Se expirar, peça um novo link a ela.</p>
+      <p class="text-[10px] text-muted text-center leading-relaxed pb-2">Os vínculos seguem a validade do link (30 dias). Se expirar, peça um novo.${ehEsposo ? ' Suas sugestões só entram no gráfico depois que ela aprovar.' : ''}</p>
     </div>`;
   }
 
@@ -2409,7 +2677,7 @@
         <div class="min-w-0">
           <p class="font-semibold truncate">${esc(u.name)}</p>
           <p class="text-xs text-muted truncate">${esc(u.email)}</p>
-          <span class="inline-block mt-1.5 text-[10px] font-semibold px-2.5 py-1 rounded-full bg-primary-soft text-primary">Conta de instrutora</span>
+          <span class="inline-block mt-1.5 text-[10px] font-semibold px-2.5 py-1 rounded-full bg-primary-soft text-primary">${ehPapelEsposo(u) ? 'Conta de esposo' : 'Conta de instrutora'}</span>
         </div>
       </div>
       <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp">
@@ -2467,7 +2735,7 @@
     // do Firestore ainda não chegou (state.currentUser === null). Sem este
     // guarda, renderShell() tenta ler propriedades de 'null' e quebra.
     else if(state.view==='app' && !state.currentUser) root.innerHTML = renderLoading();
-    else if(state.currentUser && state.currentUser.role==='instrutora') root.innerHTML = renderInstructorShell();
+    else if(state.currentUser && (state.currentUser.role==='instrutora' || ehPapelEsposo(state.currentUser))) root.innerHTML = renderInstructorShell();
     else root.innerHTML = renderShell();
   }
 
