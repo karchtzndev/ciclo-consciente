@@ -14,7 +14,7 @@
 //                      atualiza a cópia em segundo plano.
 //
 // Ao mudar CACHE_VERSION, todo cache antigo é descartado no activate.
-const CACHE_VERSION = 'v2';
+const CACHE_VERSION = 'v3';
 const CACHE_NAME = `ciclo-consciente-${CACHE_VERSION}`;
 const APP_SHELL = ['/', '/index.html', '/manifest.json', '/icons/icon-192.png', '/icons/icon-512.png'];
 

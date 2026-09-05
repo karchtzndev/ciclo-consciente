@@ -111,6 +111,7 @@
     var n = navigator;
     return [
       'App: Ciclo Consciente',
+      'Versão publicada: ' + (window.__BUILD__ || 'desconhecida'),
       'URL: ' + location.href,
       'Data: ' + new Date().toString(),
       'Navegador: ' + n.userAgent,
@@ -152,6 +153,11 @@
      false = volta o modelo Grátis/Premium com pagamento via Stripe.
      ========================================================== */
   window.__FREE_MODE__ = true;
+
+  /* Carimbo da versão publicada. Serve para saber, olhando o app, se o que
+     está no ar é mesmo o último pacote enviado — cache de PWA costuma
+     esconder isso. Aparece na aba Erros e no topo do relatório de erros. */
+  window.__BUILD__ = "2026-09-05 · esposo+copiar+senha";
 </script>
 <script>
   tailwind.config = {
@@ -2209,6 +2215,12 @@
 
     return `
     <div class="space-y-5">
+
+      <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp">
+        <p class="text-[10px] font-semibold text-muted uppercase tracking-wide mb-1">Versão publicada</p>
+        <p class="text-xs font-mono text-primary break-all">${esc(window.__BUILD__ || 'desconhecida')}</p>
+        <p class="text-[10px] text-muted mt-1.5 leading-relaxed">Se esta versão não bate com a que você acabou de enviar, o navegador está usando uma cópia guardada.</p>
+      </div>
 
       <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp">
         <div class="flex items-start gap-2.5">
