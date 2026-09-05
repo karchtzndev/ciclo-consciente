@@ -157,7 +157,7 @@
   /* Carimbo da versão publicada. Serve para saber, olhando o app, se o que
      está no ar é mesmo o último pacote enviado — cache de PWA costuma
      esconder isso. Aparece na aba Erros e no topo do relatório de erros. */
-  window.__BUILD__ = "2026-09-05 · esposo+copiar+senha";
+  window.__BUILD__ = "2026-09-05c · sugestoes em tempo real";
 </script>
 <script>
   tailwind.config = {
@@ -316,7 +316,7 @@
   const isFirebaseConfigured = !!(window.__FIREBASE_CONFIG__ && window.__FIREBASE_CONFIG__.apiKey && window.__FIREBASE_CONFIG__.apiKey !== 'SUA_API_KEY_AQUI');
 
   let fbApp = null, auth = null, db = null;
-  let userDocUnsub = null, recordsUnsub = null;
+  let userDocUnsub = null, recordsUnsub = null, suggestionsUnsub = null;
   const isAppCheckConfigured = !!(window.__APPCHECK_SITE_KEY__ && window.__APPCHECK_SITE_KEY__ !== 'SUA_CHAVE_RECAPTCHA_V3_AQUI');
 
   if(isFirebaseConfigured){
@@ -350,6 +350,23 @@
   function detachListeners(){
     if(userDocUnsub){ userDocUnsub(); userDocUnsub = null; }
     if(recordsUnsub){ recordsUnsub(); recordsUnsub = null; }
+    if(suggestionsUnsub){ suggestionsUnsub(); suggestionsUnsub = null; }
+  }
+
+  // Sugestões do esposo em tempo real. Antes isso era uma leitura única no
+  // login: se ela já estivesse com o app aberto, a sugestão só aparecia
+  // depois de recarregar a página — e ela não achava onde aprovar.
+  function attachSuggestionsListener(uidVal){
+    if(suggestionsUnsub) return;
+    suggestionsUnsub = db.collection('users').doc(uidVal).collection('suggestions')
+      .orderBy('date','desc').limit(20)
+      .onSnapshot(snap=>{
+        state.suggestions = snap.docs.map(d=>({ id:d.id, ...d.data() }));
+        render();
+      }, err => {
+        console.error('suggestions listener:', err);
+        state.suggestions = [];
+      });
   }
 
   function attachUserDocListener(fbUser){
@@ -588,6 +605,17 @@
   /* Modo beta gratuito: libera todas as funcionalidades para todas as usuárias. */
   const FREE_MODE = window.__FREE_MODE__ === true;
 
+  // Exibe uma data "YYYY-MM-DD" no formato brasileiro.
+  // Monta com new Date(ano, mes-1, dia) de propósito: passar a string direto
+  // faria o JS interpretar como UTC e, no fuso do Brasil, exibir o dia anterior.
+  function fmtDate(iso){
+    try{
+      const [a, m, d] = String(iso).split('-').map(Number);
+      if(!a || !m || !d) return String(iso);
+      return new Date(a, m - 1, d).toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric' });
+    }catch(e){ return String(iso); }
+  }
+
   // O papel foi renomeado de 'parceiro' para 'esposo'. Contas criadas antes
   // da troca guardaram 'parceiro' no Firestore, então os dois valores valem.
   function ehPapelEsposo(u){
@@ -622,6 +650,7 @@
     deleteConfirmOpen: false,
     deletePassword: '',
     copiedShareId: null,
+    lastSuggestSent: null,
     suggestions: [],
     suggestTarget: null,
     suggestBusy: false,
@@ -731,8 +760,7 @@
           state.recordsLoading = true;
           attachUserDocListener(fbUser);
           attachRecordsListener(fbUser.uid);
-          // Sugestões pendentes do esposo (só relevante para a dona do gráfico).
-          setTimeout(()=>{ try{ App.carregarSugestoes(); }catch(e){} }, 800);
+          attachSuggestionsListener(fbUser.uid);
         } else {
           state.view = 'auth';
           state.currentUser = null;
@@ -959,7 +987,8 @@
           date: data, sensacao, muco, notas,
           createdAt: firebase.firestore.FieldValue.serverTimestamp(),
         });
-        this.toast('Sugestão enviada. Ela precisa aprovar para entrar no gráfico.', 'success');
+        this.toast('Enviado! Aparece no app dela para aprovação.', 'success');
+        state.lastSuggestSent = data;
         state.suggestTarget = null;
         ev.target.reset();
       }catch(e){
@@ -970,16 +999,6 @@
         if(window.__LOG_ERROR__) window.__LOG_ERROR__('sugestao', msg, 'code: ' + ((e && e.code)||'—'));
       }
       state.suggestBusy = false; render();
-    },
-
-    async carregarSugestoes(){
-      if(!state.currentUser || state.currentUser.role !== 'aluna') return;
-      try{
-        const snap = await db.collection('users').doc(state.currentUser.id)
-          .collection('suggestions').orderBy('date','desc').limit(20).get();
-        state.suggestions = snap.docs.map(d=>({ id:d.id, ...d.data() }));
-      }catch(e){ state.suggestions = []; }
-      render();
     },
 
     async aprovarSugestao(sugId){
@@ -1000,7 +1019,6 @@
         });
         await db.collection('users').doc(state.currentUser.id).collection('suggestions').doc(sugId).delete();
         this.toast('Sugestão aprovada e registrada.', 'success');
-        await this.carregarSugestoes();
       }catch(e){
         this.toast('Não foi possível aprovar agora.', 'error');
       }
@@ -1010,7 +1028,6 @@
       try{
         await db.collection('users').doc(state.currentUser.id).collection('suggestions').doc(sugId).delete();
         this.toast('Sugestão descartada.', 'info');
-        await this.carregarSugestoes();
       }catch(e){
         this.toast('Não foi possível descartar agora.', 'error');
       }
@@ -1758,6 +1775,7 @@
     ];
     if(FREE_MODE) tabs.push({ id:'erros', label:'Erros', ic:'bug' });
     const errCount = (window.__ERROR_LOG__||[]).length;
+    const sugCount = (state.suggestions||[]).length;
     const titles = { dashboard:'Painel do dia', registro:'Registro diário', grafico:'Gráfico Billings', perfil:'Perfil & Plano', erros:'Registro de erros' };
 
     const needsVerification = state.fbUser && !state.fbUser.isAnonymous && !state.fbUser.emailVerified && !state.emailBannerDismissed;
@@ -1807,6 +1825,7 @@
                 ${icon(t.ic,'w-5 h-5')}
                 ${t.locked ? `<span class="absolute -right-2 -top-1.5 bg-transicao rounded-full w-3.5 h-3.5 flex items-center justify-center">${icon('lock','w-2 h-2 text-white')}</span>` : ''}
                 ${t.id==='erros' && errCount>0 ? `<span class="absolute -right-2.5 -top-1.5 bg-fertil text-white rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center text-[9px] font-bold">${errCount>99?'99+':errCount}</span>` : ''}
+                ${t.id==='dashboard' && sugCount>0 ? `<span class="absolute -right-2.5 -top-1.5 bg-transicao text-white rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center text-[9px] font-bold">${sugCount}</span>` : ''}
               </span>
               <span class="text-[10px] font-semibold ${state.tab===t.id ? 'text-primary' : 'text-muted'}">${t.label}</span>
             </button>
@@ -2650,6 +2669,16 @@
     return `
     <div class="space-y-5">
       ${state.suggestTarget ? renderFormSugestao() : ''}
+      ${(!state.suggestTarget && state.lastSuggestSent) ? `
+      <div class="bg-infertil-bg text-infertil rounded-2xl p-4 anim-fadeUp">
+        <div class="flex items-start gap-2.5">
+          ${icon('check','w-4 h-4 mt-0.5 shrink-0')}
+          <div>
+            <p class="text-sm font-semibold">Sugestão enviada &mdash; ${esc(fmtDate(state.lastSuggestSent))}</p>
+            <p class="text-[11px] mt-1 leading-relaxed">Ela vê no painel dela e decide se aprova. Enquanto isso, nada foi alterado no gráfico.</p>
+          </div>
+        </div>
+      </div>` : ''}
       <div class="bg-white rounded-2xl p-4 shadow-soft anim-fadeUp">
         <p class="text-xs font-semibold text-muted uppercase tracking-wide mb-1">${ehEsposo ? 'Vincular' : 'Vincular nova aluna'}</p>
         <p class="text-[11px] text-muted mb-3 leading-relaxed">Peça para ${quem} gerar um link em Perfil → "Compartilhar com instrutora ou esposo" e cole aqui o link ou o código.</p>
