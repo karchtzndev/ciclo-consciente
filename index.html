@@ -645,8 +645,41 @@
       if(params.has('checkout')){ window.history.replaceState({}, '', window.location.pathname); }
 
       if('serviceWorker' in navigator){
+        // Recarrega uma única vez quando um service worker novo assume o
+        // controle. A trava evita laço de recarregamento.
+        let jaRecarregou = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if(jaRecarregou) return;
+          jaRecarregou = true;
+          window.location.reload();
+        });
+
         navigator.serviceWorker.register('/sw.js')
-          .then(reg => { window.__SW_REG__ = reg; })
+          .then(reg => {
+            window.__SW_REG__ = reg;
+
+            // Se uma versão nova já está esperando, manda ativar agora.
+            if(reg.waiting) reg.waiting.postMessage('SKIP_WAITING');
+
+            // E fica de olho em versões que chegarem durante o uso.
+            reg.addEventListener('updatefound', () => {
+              const novo = reg.installing;
+              if(!novo) return;
+              novo.addEventListener('statechange', () => {
+                if(novo.state === 'installed' && navigator.serviceWorker.controller){
+                  novo.postMessage('SKIP_WAITING');
+                }
+              });
+            });
+
+            // Procura atualização ao abrir, ao voltar para o app e a cada 30 min.
+            const procurar = () => { try{ reg.update(); }catch(e){} };
+            procurar();
+            document.addEventListener('visibilitychange', () => {
+              if(document.visibilityState === 'visible') procurar();
+            });
+            setInterval(procurar, 30 * 60 * 1000);
+          })
           .catch(()=>{});
       }
 
